@@ -1,0 +1,20 @@
+﻿{
+  "name": "hoteles-antigua-guatemala",
+  "version": "1.0.0",
+  "description": "Sistema de registro y consulta de hoteles y hospedajes de Antigua Guatemala (Grupo 4)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "db:init": "node scripts/init-db.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:ejemplos": "node scripts/ejemplos.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1"
+  }
+}

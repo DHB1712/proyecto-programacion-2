@@ -1,0 +1,305 @@
+<!doctype html>
+<!--
+  #PAGINA_LOGIN
+  INICIAR SESIÓN Y CREAR CUENTA
+  - Pestaña "Iniciar sesión": para todos (admin, registradores y clientes).
+  - Pestaña "Crear cuenta": cualquier persona crea su cuenta de cliente.
+  Al entrar se guarda la sesión en el navegador y se va a otra página.
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iniciar sesión - Hospedajes Antigua</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="css/estilos.css" rel="stylesheet">
+</head>
+<body>
+  <div id="menu"></div>
+
+  <main class="acceso">
+    <div class="container">
+      <div class="row justify-content-center">
+        <div class="col-lg-10 col-xl-9">
+          <div class="card acceso-tarjeta">
+            <div class="row g-0">
+
+              <!-- Lado izquierdo: bienvenida (se oculta en el celular) -->
+              <div class="col-md-5 acceso-lado d-none d-md-flex">
+                <div>
+                  <span class="icono-marca mb-4"><i class="bi bi-building"></i></span>
+                  <h2 class="h3 fw-bold">Bienvenido a Hospedajes Antigua</h2>
+                  <p class="opacity-75">Hoteles, hostales y posadas de Antigua Guatemala en un solo lugar.</p>
+                </div>
+                <ul class="list-unstyled my-4">
+                  <li><i class="bi bi-heart-fill"></i><span><b>Guarda tus favoritos</b><br><span class="small opacity-75">Ten a mano los hospedajes que te interesan.</span></span></li>
+                  <li><i class="bi bi-sign-turn-right-fill"></i><span><b>Cómo llegar</b><br><span class="small opacity-75">Abre la ruta en Google Maps desde donde estés.</span></span></li>
+                  <li><i class="bi bi-funnel-fill"></i><span><b>Filtra por servicios y precio</b><br><span class="small opacity-75">Wifi, parqueo, desayuno, piscina y más.</span></span></li>
+                </ul>
+                <p class="small opacity-75 mb-0">Proyecto Programación 2 · Grupo 4</p>
+              </div>
+
+              <!-- Lado derecho: formularios -->
+              <div class="col-md-7 acceso-form">
+                <ul class="nav nav-pills nav-fill pestanas-acceso mb-4">
+                  <li class="nav-item">
+                    <button class="nav-link active" id="tab-entrar" data-bs-toggle="pill" data-bs-target="#panelEntrar" type="button">Iniciar sesión</button>
+                  </li>
+                  <li class="nav-item">
+                    <button class="nav-link" id="tab-crear" data-bs-toggle="pill" data-bs-target="#panelCrear" type="button">Crear cuenta</button>
+                  </li>
+                </ul>
+
+                <div id="mensaje"></div>
+
+                <div class="tab-content">
+
+                  <!-- ===== Iniciar sesión ===== -->
+                  <div class="tab-pane fade show active" id="panelEntrar">
+                    <h1 class="h4 fw-bold mb-1">¡Hola de nuevo!</h1>
+                    <p class="text-muted small mb-4">Clientes, registradores y administrador entran aquí con su usuario.</p>
+                    <form id="formEntrar">
+                      <div class="form-floating mb-3">
+                        <input class="form-control" id="entrarUsuario" placeholder="usuario" autocomplete="username">
+                        <label for="entrarUsuario"><i class="bi bi-person"></i> Usuario o correo</label>
+                      </div>
+                      <div class="input-group mb-3">
+                        <div class="form-floating">
+                          <input class="form-control" id="entrarPassword" type="password" placeholder="contraseña" autocomplete="current-password">
+                          <label for="entrarPassword"><i class="bi bi-lock"></i> Contraseña</label>
+                        </div>
+                        <button class="btn btn-outline-secondary" type="button" onclick="mostrarPassword('entrarPassword', this)" aria-label="Mostrar contraseña"><i class="bi bi-eye"></i></button>
+                      </div>
+                      <button class="btn btn-primary btn-lg w-100" id="btnEntrar">Entrar</button>
+                    </form>
+                    <p class="text-center small text-muted mt-4 mb-0">
+                      ¿No tienes cuenta? <a href="#" onclick="cambiarPestana('crear'); return false;">Crea una gratis</a>
+                    </p>
+                  </div>
+
+                  <!-- ===== Crear cuenta ===== -->
+                  <div class="tab-pane fade" id="panelCrear">
+                    <h1 class="h4 fw-bold mb-1">Crea tu cuenta de cliente</h1>
+                    <p class="text-muted small mb-4">Es gratis y te permite guardar tus hospedajes favoritos.</p>
+                    <form id="formCrear" novalidate>
+                      <div class="form-floating mb-3">
+                        <input class="form-control" id="crearNombre" placeholder="nombre" required maxlength="100" autocomplete="name">
+                        <label for="crearNombre">Nombre completo</label>
+                      </div>
+                      <div class="row g-2 mb-3">
+                        <div class="col-sm-6">
+                          <div class="form-floating">
+                            <input class="form-control" id="crearUsuario" placeholder="usuario" required pattern="[a-z0-9._\-]{3,50}" autocomplete="username">
+                            <label for="crearUsuario">Usuario</label>
+                            <div class="invalid-feedback">De 3 a 50: minúsculas, números, punto o guion.</div>
+                          </div>
+                        </div>
+                        <div class="col-sm-6">
+                          <div class="form-floating">
+                            <input class="form-control" id="crearCorreo" type="email" placeholder="correo" autocomplete="email">
+                            <label for="crearCorreo">Correo (opcional)</label>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="input-group mb-1">
+                        <div class="form-floating">
+                          <input class="form-control" id="crearPassword" type="password" placeholder="contraseña" required minlength="6" autocomplete="new-password">
+                          <label for="crearPassword">Contraseña</label>
+                        </div>
+                        <button class="btn btn-outline-secondary" type="button" onclick="mostrarPassword('crearPassword', this)" aria-label="Mostrar contraseña"><i class="bi bi-eye"></i></button>
+                      </div>
+                      <!-- Barra que indica qué tan segura es la contraseña -->
+                      <div class="fuerza mb-1"><span id="barraFuerza"></span></div>
+                      <div class="form-text mb-3" id="textoFuerza">Mínimo 6 caracteres.</div>
+                      <div class="form-floating mb-3">
+                        <input class="form-control" id="crearConfirmar" type="password" placeholder="confirmar" required autocomplete="new-password">
+                        <label for="crearConfirmar">Confirmar contraseña</label>
+                        <div class="invalid-feedback">Las contraseñas no coinciden.</div>
+                      </div>
+                      <button class="btn btn-primary btn-lg w-100" id="btnCrear">Crear cuenta</button>
+                    </form>
+                    <p class="text-center small text-muted mt-4 mb-0">
+                      ¿Ya tienes cuenta? <a href="#" onclick="cambiarPestana('entrar'); return false;">Inicia sesión</a>
+                    </p>
+                  </div>
+
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/comun.js"></script>
+  <script>
+    pintarMenu('');
+    const mensaje = document.getElementById('mensaje');
+
+    // Cambia entre las pestañas "entrar" y "crear"
+    function cambiarPestana(cual) {
+      mensaje.innerHTML = '';
+      const boton = document.getElementById('tab-' + cual);
+      bootstrap.Tab.getOrCreateInstance(boton).show();
+    }
+
+    // Botón del ojo: muestra u oculta la contraseña
+    function mostrarPassword(idCampo, boton) {
+      const campo = document.getElementById(idCampo);
+      if (campo.type === 'password') {
+        campo.type = 'text';
+        boton.innerHTML = '<i class="bi bi-eye-slash"></i>';
+      } else {
+        campo.type = 'password';
+        boton.innerHTML = '<i class="bi bi-eye"></i>';
+      }
+    }
+
+    // #ROLES - Decide a qué página ir después de entrar (según el rol)
+    function paginaDestino(usuario) {
+      // Si venía de otra página (ej: login.html?volver=favoritos.html), regresamos ahí
+      const volver = parametro('volver');
+      const paginasDeEditores = ['registro.html', 'mis-registros.html', 'admin.html'];
+      if (volver && !volver.startsWith('login.html') && !volver.includes('/') && !volver.includes(':')) {
+        const nombrePagina = volver.split('?')[0];
+        const esDeEditores = paginasDeEditores.includes(nombrePagina);
+        const puedeIr = !esDeEditores
+          || usuario.rol === 'admin'
+          || (usuario.rol === 'registrador' && nombrePagina !== 'admin.html');
+        if (puedeIr) {
+          return volver;
+        }
+      }
+      // Si no, cada rol va a su página principal
+      if (usuario.rol === 'admin') return 'admin.html';
+      if (usuario.rol === 'registrador') return 'mis-registros.html';
+      return 'hospedajes.html';
+    }
+
+    // ==================== INICIAR SESIÓN ====================   #INICIO_SESION
+    // Manda el usuario y la contraseña a /api/auth/login; si son correctos guarda la sesión
+    document.getElementById('formEntrar').addEventListener('submit', async function (evento) {
+      evento.preventDefault();
+      const usuario = document.getElementById('entrarUsuario').value.trim();
+      const password = document.getElementById('entrarPassword').value;
+
+      if (usuario === '' || password === '') {
+        alerta(mensaje, 'Escribe tu usuario y contraseña.', 'warning');
+        return;
+      }
+
+      const boton = document.getElementById('btnEntrar');
+      boton.disabled = true;
+      try {
+        const respuesta = await api('/auth/login', { method: 'POST', body: { usuario: usuario, password: password } });
+        guardarSesion(respuesta.token, respuesta.usuario);
+        location.href = paginaDestino(respuesta.usuario);
+      } catch (error) {
+        alerta(mensaje, esc(error.message));
+        boton.disabled = false;
+      }
+    });
+
+    // ==================== CREAR CUENTA ====================   #CREAR_CUENTA
+    // Revisa el formulario y manda los datos a /api/auth/registro
+    const campoUsuario = document.getElementById('crearUsuario');
+    const campoPassword = document.getElementById('crearPassword');
+    const campoConfirmar = document.getElementById('crearConfirmar');
+
+    // El usuario siempre en minúsculas y sin espacios
+    campoUsuario.addEventListener('input', function () {
+      campoUsuario.value = campoUsuario.value.toLowerCase().replaceAll(' ', '');
+    });
+
+    // Marca error si la confirmación no es igual a la contraseña
+    function revisarConfirmacion() {
+      if (campoConfirmar.value !== '' && campoConfirmar.value !== campoPassword.value) {
+        campoConfirmar.setCustomValidity('no coincide');
+      } else {
+        campoConfirmar.setCustomValidity('');
+      }
+    }
+    campoConfirmar.addEventListener('input', revisarConfirmacion);
+
+    // #SEGURIDAD_CONTRASENA - Barra de seguridad de la contraseña: suma puntos por cada cosa que tenga
+    campoPassword.addEventListener('input', function () {
+      const texto = campoPassword.value;
+      let puntos = 0;
+      if (texto.length >= 6) puntos++;
+      if (texto.length >= 10) puntos++;
+      if (/[A-Z]/.test(texto) && /[a-z]/.test(texto)) puntos++;   // mayúsculas y minúsculas
+      if (/[0-9]/.test(texto)) puntos++;                          // números
+      if (/[^A-Za-z0-9]/.test(texto)) puntos++;                   // símbolos
+
+      let ancho = '0%';
+      let color = '#e9ecef';
+      let descripcion = 'Mínimo 6 caracteres.';
+      if (texto.length > 0 && texto.length < 6) {
+        ancho = '15%'; color = '#dc3545'; descripcion = 'Muy corta: mínimo 6 caracteres.';
+      } else if (puntos === 1) {
+        ancho = '25%'; color = '#dc3545'; descripcion = 'Débil';
+      } else if (puntos === 2) {
+        ancho = '50%'; color = '#fd7e14'; descripcion = 'Regular';
+      } else if (puntos === 3) {
+        ancho = '75%'; color = '#ffc107'; descripcion = 'Buena';
+      } else if (puntos >= 4) {
+        ancho = '100%'; color = '#198754'; descripcion = 'Muy buena';
+      }
+
+      document.getElementById('barraFuerza').style.width = ancho;
+      document.getElementById('barraFuerza').style.backgroundColor = color;
+      document.getElementById('textoFuerza').textContent = descripcion;
+      revisarConfirmacion();
+    });
+
+    document.getElementById('formCrear').addEventListener('submit', async function (evento) {
+      evento.preventDefault();
+      revisarConfirmacion();
+
+      const formulario = document.getElementById('formCrear');
+      formulario.classList.add('was-validated');   // pinta en rojo lo que esté mal
+      if (!formulario.checkValidity()) {
+        alerta(mensaje, 'Revisa los campos marcados en rojo.', 'warning');
+        return;
+      }
+
+      const datos = {
+        nombre: document.getElementById('crearNombre').value,
+        usuario: campoUsuario.value,
+        correo: document.getElementById('crearCorreo').value,
+        password: campoPassword.value,
+      };
+
+      const boton = document.getElementById('btnCrear');
+      boton.disabled = true;
+      try {
+        const respuesta = await api('/auth/registro', { method: 'POST', body: datos });
+        guardarSesion(respuesta.token, respuesta.usuario);
+        location.href = paginaDestino(respuesta.usuario);
+      } catch (error) {
+        alerta(mensaje, esc(error.message));
+        boton.disabled = false;
+      }
+    });
+
+    // ==================== AL ABRIR LA PÁGINA ====================
+
+    // login.html?modo=crear abre directo la pestaña "Crear cuenta"
+    if (parametro('modo') === 'crear') {
+      cambiarPestana('crear');
+    }
+
+    // Mensajes según por qué llegó al login
+    if (parametro('motivo') === 'favoritos') {
+      alerta(mensaje, 'Crea una cuenta o inicia sesión para guardar hospedajes en tus favoritos.', 'info');
+    } else if (parametro('motivo') === 'permiso') {
+      alerta(mensaje, 'Tu cuenta no tiene permiso para ver esa página. Entra con una cuenta de administrador o registrador.', 'warning');
+    } else if (parametro('volver') && !usuarioActual()) {
+      alerta(mensaje, 'Inicia sesión para continuar.', 'info');
+    }
+  </script>
+</body>
+</html>

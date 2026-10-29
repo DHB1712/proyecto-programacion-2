@@ -1,0 +1,118 @@
+<!doctype html>
+<!--
+  ==========================================================
+  #PAGINA_INICIO
+  PÁGINA DE INICIO - Hospedajes Antigua (Programación 2, Grupo 4)
+  (Para encontrar cualquier parte del código, mira el archivo GUIA-DEL-CODIGO.md)
+  ==========================================================
+  ¿CÓMO FUNCIONA? (resumen)
+
+  1. Base de datos: PostgreSQL
+     Ahí se guardan los hoteles, los tipos, los usuarios y los favoritos.
+     Las tablas están en db/schema.sql
+
+  2. Conexión a PostgreSQL: src/db.js
+     El servidor se conecta usando la contraseña que está en el archivo .env
+
+  3. Servidor: server.js (Node.js + Express)
+     Muestra estas páginas y tiene la API: direcciones como /api/hospedajes
+     que devuelven los datos de la base de datos.
+
+  4. Páginas: carpeta public
+     Están hechas con HTML y Bootstrap. Con JavaScript le piden los datos
+     a la API (función api() de js/comun.js) y los muestran.
+
+  5. Usuarios: src/auth.js
+     - Visitante: solo busca y ve hoteles.
+     - Cliente: además guarda favoritos.
+     - Registrador: registra hoteles.
+     - Administrador: puede hacer todo.
+
+  6. Google Maps
+     Con la latitud y longitud de cada hotel se arma el enlace para verlo
+     en Google Maps y el botón "Cómo llegar" (gratis).
+  ==========================================================
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hospedajes Antigua - Hoteles y hospedajes de Antigua Guatemala</title>
+  <!-- Bootstrap (diseño), Bootstrap Icons (íconos) y los estilos propios del proyecto -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="css/estilos.css" rel="stylesheet">
+</head>
+<body>
+  <!-- Menú superior: lo dibuja pintarMenu() de js/comun.js según si hay sesión -->
+  <div id="menu"></div>
+
+  <main>
+    <!-- Portada con el buscador: envía el texto a la página del catálogo -->
+    <section class="portada text-center">
+      <div class="container">
+        <h1 class="display-5">Hoteles y hospedajes de Antigua Guatemala</h1>
+        <p class="lead mb-4">Encuentra hoteles, hostales y posadas, compara sus servicios y ábrelos en Google Maps.</p>
+        <form class="row g-2 justify-content-center" action="hospedajes.html">
+          <div class="col-12 col-md-6">
+            <input class="form-control form-control-lg" name="q" placeholder="Nombre del hotel o dirección" aria-label="Buscar">
+          </div>
+          <div class="col-12 col-md-auto">
+            <button class="btn btn-warning btn-lg w-100"><i class="bi bi-search"></i> Buscar</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <!-- Tarjetas por tipo de hospedaje: se llenan con los datos de /api/tipos -->
+    <section class="container py-5">
+      <h2 class="h4 mb-4">Explora por tipo de hospedaje</h2>
+      <div class="row g-3" id="tipos">
+        <div class="text-muted">Cargando...</div>
+      </div>
+    </section>
+
+    <!-- Explicación breve de lo que ofrece el sistema -->
+    <section class="container pb-5">
+      <div class="row g-4">
+        <div class="col-md-4">
+          <h3 class="h6"><i class="bi bi-search text-danger"></i> Consulta</h3>
+          <p class="small text-muted">Busca por nombre, tipo, municipio, servicios y precio sin necesidad de crear una cuenta.</p>
+        </div>
+        <div class="col-md-4">
+          <h3 class="h6"><i class="bi bi-geo text-danger"></i> Coordenadas</h3>
+          <p class="small text-muted">Cada hospedaje tiene su latitud y longitud, con un enlace directo a Google Maps.</p>
+        </div>
+        <div class="col-md-4">
+          <h3 class="h6"><i class="bi bi-people text-danger"></i> Grupo 4</h3>
+          <p class="small text-muted">Los integrantes del grupo registran los hospedajes y el administrador revisa y aprueba la información.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
+
+  <!-- Bootstrap JS (menú desplegable) y las funciones compartidas del proyecto -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/comun.js"></script>
+  <script>
+    // Dibuja el menú marcando "Inicio" como página activa
+    pintarMenu('inicio');
+
+    // Pide los tipos de hospedaje a la API y crea una tarjeta por cada uno
+    api('/tipos').then((tipos) => {
+      document.getElementById('tipos').innerHTML = tipos.map((t) => `
+        <div class="col-6 col-md-4 col-lg-2">
+          <a href="hospedajes.html?tipo=${esc(t.slug)}" class="card h-100 shadow-sm tarjeta-categoria text-center p-3">
+            <i class="bi ${esc(t.icono)} icono-categoria"></i>
+            <div class="fw-semibold mt-2">${esc(t.nombre)}</div>
+            <div class="small text-muted">${t.total} ${t.total === 1 ? 'registro' : 'registros'}</div>
+          </a>
+        </div>`).join('');
+    }).catch((e) => {
+      document.getElementById('tipos').innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+    });
+  </script>
+</body>
+</html>

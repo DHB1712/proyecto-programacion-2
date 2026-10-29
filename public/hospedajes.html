@@ -1,0 +1,227 @@
+<!doctype html>
+<!--
+  #PAGINA_CATALOGO
+  CATÁLOGO DE HOSPEDAJES
+  Muestra los hospedajes con filtros (nombre, tipo, lugar, precio y servicios).
+  Cada vez que se cambia un filtro, se piden los datos otra vez a la API.
+-->
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Catálogo de hospedajes - Hospedajes Antigua</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="css/estilos.css" rel="stylesheet">
+</head>
+<body>
+  <div id="menu"></div>
+
+  <main class="container py-4">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <h1 class="h3 mb-0">Catálogo de hoteles y hospedajes</h1>
+      <!-- Este botón solo se muestra al admin y a los registradores -->
+      <a class="btn btn-primary d-none" href="registro.html" id="btnNuevo"><i class="bi bi-plus-lg"></i> Agregar hospedaje</a>
+    </div>
+
+    <!-- Filtros de búsqueda -->
+    <form id="filtros" class="card card-body shadow-sm mb-4">
+      <div class="row g-2">
+        <div class="col-12 col-lg-4">
+          <label class="form-label small" for="q">Nombre</label>
+          <input class="form-control" id="q" placeholder="Nombre, dirección o descripción">
+        </div>
+        <div class="col-6 col-lg-2">
+          <label class="form-label small" for="tipo">Tipo</label>
+          <select class="form-select" id="tipo"><option value="">Todos</option></select>
+        </div>
+        <div class="col-6 col-lg-2">
+          <label class="form-label small" for="departamento">Departamento</label>
+          <select class="form-select" id="departamento"><option value="">Todos</option></select>
+        </div>
+        <div class="col-6 col-lg-2">
+          <label class="form-label small" for="municipio">Municipio</label>
+          <select class="form-select" id="municipio"><option value="">Todos</option></select>
+        </div>
+        <div class="col-6 col-lg-2">
+          <label class="form-label small" for="precio_max">Precio máximo (Q)</label>
+          <input class="form-control" id="precio_max" type="number" min="0" step="50" placeholder="Sin límite">
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <span class="form-label small d-block">Servicios</span>
+        <div id="servicios" class="d-flex flex-wrap gap-1"></div>
+      </div>
+
+      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
+        <div class="d-flex align-items-center gap-2">
+          <label class="small text-nowrap" for="orden">Ordenar por</label>
+          <select class="form-select form-select-sm" id="orden">
+            <option value="">Nombre</option>
+            <option value="precio">Precio más bajo</option>
+          </select>
+        </div>
+        <button type="button" id="btnLimpiar" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i> Limpiar filtros</button>
+      </div>
+    </form>
+
+    <!-- Aquí se dibujan las tarjetas de los hospedajes -->
+    <p class="text-muted small" id="contador"></p>
+    <div class="row g-3" id="resultados"></div>
+  </main>
+
+  <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/comun.js"></script>
+  <script>
+    pintarMenu('hospedajes');
+
+    let servicios = [];     // lista de servicios (wifi, parqueo...)
+    let ubicaciones = [];   // departamentos y municipios que tienen hospedajes
+
+    // Mostrar el botón "Agregar hospedaje" al admin y registradores
+    if (esEditor(usuarioActual())) {
+      document.getElementById('btnNuevo').classList.remove('d-none');
+    }
+
+    // Llena la lista de municipios según el departamento elegido
+    function llenarMunicipios() {
+      const departamento = document.getElementById('departamento').value;
+      const selectMunicipio = document.getElementById('municipio');
+      const elegido = selectMunicipio.value;
+
+      let opciones = '<option value="">Todos</option>';
+      const yaAgregados = [];
+      for (const u of ubicaciones) {
+        if ((departamento === '' || u.departamento === departamento) && !yaAgregados.includes(u.municipio)) {
+          yaAgregados.push(u.municipio);
+          opciones += `<option>${esc(u.municipio)}</option>`;
+        }
+      }
+      selectMunicipio.innerHTML = opciones;
+      selectMunicipio.value = elegido;
+    }
+
+    // #FILTROS  #CATALOGO - Busca los hospedajes con los filtros y dibuja las tarjetas
+    async function buscar() {
+      // Armamos la dirección con los filtros, ej: /hospedajes?tipo=hostal&precio_max=200
+      const filtros = new URLSearchParams();
+      for (const campo of ['q', 'tipo', 'departamento', 'municipio', 'precio_max', 'orden']) {
+        const valor = document.getElementById(campo).value;
+        if (valor !== '') {
+          filtros.set(campo, valor);
+        }
+      }
+
+      // Servicios marcados, separados por coma: wifi,parqueo
+      const marcados = [];
+      for (const casilla of document.querySelectorAll('input[name="servicio"]:checked')) {
+        marcados.push(casilla.value);
+      }
+      if (marcados.length > 0) {
+        filtros.set('servicios', marcados.join(','));
+      }
+
+      // Guardamos los filtros en la dirección de la página (para poder compartirla)
+      history.replaceState(null, '', '?' + filtros.toString());
+
+      const contenedor = document.getElementById('resultados');
+      try {
+        const hospedajes = await api('/hospedajes?' + filtros.toString());
+
+        let texto = hospedajes.length + ' hospedajes encontrados';
+        if (hospedajes.length === 1) texto = '1 hospedaje encontrado';
+        document.getElementById('contador').textContent = texto;
+
+        if (hospedajes.length === 0) {
+          contenedor.innerHTML = '<div class="col-12"><div class="alert alert-light border">No se encontraron hospedajes con esos filtros.</div></div>';
+          return;
+        }
+
+        let html = '';
+        for (const h of hospedajes) {
+          html += tarjetaHospedaje(h, servicios);
+        }
+        contenedor.innerHTML = html;
+      } catch (error) {
+        contenedor.innerHTML = `<div class="col-12"><div class="alert alert-danger">${esc(error.message)}</div></div>`;
+      }
+    }
+
+    // Se ejecuta al abrir la página: llena los filtros y hace la primera búsqueda
+    async function iniciar() {
+      const tipos = await api('/tipos');
+      ubicaciones = await api('/hospedajes/filtros');
+      servicios = await cargarServicios();
+      await cargarFavoritos();
+
+      // Lista de tipos
+      for (const t of tipos) {
+        document.getElementById('tipo').innerHTML += `<option value="${esc(t.slug)}">${esc(t.nombre)}</option>`;
+      }
+
+      // Lista de departamentos (sin repetir)
+      const departamentos = [];
+      for (const u of ubicaciones) {
+        if (!departamentos.includes(u.departamento)) {
+          departamentos.push(u.departamento);
+          document.getElementById('departamento').innerHTML += `<option>${esc(u.departamento)}</option>`;
+        }
+      }
+
+      // Botones de servicios (casillas con forma de botón)
+      const serviciosEnUrl = (parametro('servicios') || '').split(',');
+      let html = '';
+      for (const s of servicios) {
+        const marcado = serviciosEnUrl.includes(s.clave) ? 'checked' : '';
+        html += `
+          <input type="checkbox" class="btn-check" name="servicio" value="${s.clave}" id="s-${s.clave}" ${marcado}>
+          <label class="btn btn-outline-secondary btn-sm" for="s-${s.clave}"><i class="bi ${s.icono}"></i> ${s.nombre}</label>`;
+      }
+      document.getElementById('servicios').innerHTML = html;
+
+      // Si la dirección ya trae filtros (ej: desde la página de inicio), los ponemos
+      for (const campo of ['q', 'tipo', 'departamento', 'precio_max', 'orden']) {
+        if (parametro(campo)) {
+          document.getElementById(campo).value = parametro(campo);
+        }
+      }
+      llenarMunicipios();
+      if (parametro('municipio')) {
+        document.getElementById('municipio').value = parametro('municipio');
+      }
+
+      buscar();
+    }
+
+    // Cada vez que se cambia algo en los filtros, buscamos de nuevo.
+    // (Esperamos 300 ms para no buscar con cada letra que se escribe.)
+    let espera;
+    document.getElementById('filtros').addEventListener('input', function (evento) {
+      if (evento.target.id === 'departamento') {
+        llenarMunicipios();
+      }
+      clearTimeout(espera);
+      espera = setTimeout(buscar, 300);
+    });
+
+    // Que la tecla Enter no recargue la página
+    document.getElementById('filtros').addEventListener('submit', function (evento) {
+      evento.preventDefault();
+      buscar();
+    });
+
+    document.getElementById('btnLimpiar').addEventListener('click', function () {
+      document.getElementById('filtros').reset();
+      llenarMunicipios();
+      buscar();
+    });
+
+    iniciar().catch(function (error) {
+      alerta(document.getElementById('resultados'), esc(error.message));
+    });
+  </script>
+</body>
+</html>

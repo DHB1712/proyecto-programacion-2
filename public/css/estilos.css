@@ -1,0 +1,256 @@
+/* =============================================================================
+   #ESTILOS
+   ESTILOS PROPIOS DEL PROYECTO
+   Bootstrap da el diseño base; aquí van los colores de Antigua (terracota y
+   amarillo), la portada, las tarjetas, el corazón de favoritos y la página
+   de inicio de sesión.
+   ============================================================================= */
+
+/* Colores principales: se usan en todo el sitio */
+:root {
+  --color-principal: #8c3b2a;  /* terracota de las fachadas antigüeñas */
+  --color-secundario: #e2a93b; /* amarillo de La Merced */
+  --fondo: #faf7f2;
+}
+
+body {
+  background: var(--fondo);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+main { flex: 1; }
+
+.barra { background: var(--color-principal); }
+
+.btn-primary {
+  --bs-btn-bg: var(--color-principal);
+  --bs-btn-border-color: var(--color-principal);
+  --bs-btn-hover-bg: #6f2e20;
+  --bs-btn-hover-border-color: #6f2e20;
+  --bs-btn-active-bg: #5c261b;
+}
+
+.portada {
+  background: linear-gradient(rgba(40, 20, 10, .55), rgba(40, 20, 10, .55)),
+    linear-gradient(135deg, #8c3b2a 0%, #c46b3c 50%, #e2a93b 100%);
+  color: #fff;
+  padding: 5rem 0 4rem;
+}
+
+.portada h1 { font-weight: 700; }
+
+.tarjeta-categoria {
+  transition: transform .15s, box-shadow .15s;
+  text-decoration: none;
+  color: inherit;
+}
+
+.tarjeta-categoria:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 .5rem 1rem rgba(0, 0, 0, .1) !important;
+}
+
+.icono-categoria {
+  font-size: 2rem;
+  color: var(--color-principal);
+}
+
+.tarjeta-lugar .card-img-top,
+.foto-vacia {
+  height: 170px;
+  object-fit: cover;
+}
+
+.foto-vacia {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 3rem;
+  color: var(--color-principal);
+  background: #f1e6d8;
+  border-radius: var(--bs-card-inner-border-radius) var(--bs-card-inner-border-radius) 0 0;
+}
+
+.texto-corto {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.servicio {
+  color: var(--color-principal);
+  margin-right: .5rem;
+  font-size: 1.05rem;
+}
+
+.mapa {
+  width: 100%;
+  height: 360px;
+  border: 0;
+  border-radius: .5rem;
+}
+
+.dato dt { font-weight: 600; color: #6c757d; font-size: .85rem; }
+.dato dd { margin-bottom: .75rem; }
+
+.etiqueta-ejemplo {
+  background: #fff3cd;
+  color: #7a5b00;
+  border: 1px solid #f0d78c;
+}
+
+.foto-detalle {
+  width: 100%;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: .75rem;
+}
+
+/* ---------- Menú de usuario ---------- */
+.avatar {
+  width: 1.9rem;
+  height: 1.9rem;
+  border-radius: 50%;
+  background: var(--color-secundario);
+  color: #3b1d12;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar-grande {
+  width: 4.5rem;
+  height: 4.5rem;
+  font-size: 2rem;
+}
+
+/* ---------- Favoritos ---------- */
+.btn-fav {
+  position: absolute;
+  top: .6rem;
+  right: .6rem;
+  z-index: 2;
+  width: 2.3rem;
+  height: 2.3rem;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, .92);
+  color: #6c757d;
+  box-shadow: 0 .125rem .4rem rgba(0, 0, 0, .15);
+  transition: transform .15s, color .15s;
+}
+
+.btn-fav:hover { transform: scale(1.1); color: #dc3545; }
+.btn-fav.activo { color: #dc3545; }
+
+.btn-fav-grande {
+  position: static;
+  width: auto;
+  height: auto;
+  border-radius: var(--bs-border-radius);
+  padding: .375rem .75rem;
+  border: 1px solid #dc3545;
+  box-shadow: none;
+}
+
+/* ---------- Inicio de sesión ---------- */
+.acceso {
+  min-height: calc(100vh - 56px);
+  display: flex;
+  align-items: center;
+  padding: 2.5rem 0;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(226, 169, 59, .18), transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(140, 59, 42, .14), transparent 45%),
+    var(--fondo);
+}
+
+.acceso-tarjeta {
+  border: 0;
+  border-radius: 1.25rem;
+  overflow: hidden;
+  box-shadow: 0 1.5rem 3rem rgba(60, 25, 15, .15);
+}
+
+.acceso-lado {
+  background:
+    linear-gradient(160deg, rgba(60, 25, 15, .2), rgba(60, 25, 15, .75)),
+    linear-gradient(135deg, #8c3b2a 0%, #b5552f 55%, #e2a93b 100%);
+  color: #fff;
+  padding: 3rem 2.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.acceso-lado .icono-marca {
+  font-size: 2.5rem;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, .15);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.acceso-lado li {
+  display: flex;
+  gap: .75rem;
+  margin-bottom: 1rem;
+}
+
+.acceso-lado li i {
+  font-size: 1.25rem;
+  color: var(--color-secundario);
+}
+
+.acceso-form { padding: 2.5rem; }
+
+.pestanas-acceso {
+  background: #f1e6d8;
+  border-radius: 999px;
+  padding: .3rem;
+}
+
+.pestanas-acceso .nav-link {
+  border-radius: 999px;
+  color: #6f2e20;
+  font-weight: 600;
+}
+
+.pestanas-acceso .nav-link.active {
+  background: #fff;
+  color: var(--color-principal);
+  box-shadow: 0 .125rem .4rem rgba(0, 0, 0, .1);
+}
+
+.acceso .form-control:focus,
+.acceso .form-select:focus {
+  border-color: #c46b3c;
+  box-shadow: 0 0 0 .2rem rgba(196, 107, 60, .2);
+}
+
+.fuerza {
+  height: .3rem;
+  border-radius: 999px;
+  background: #e9ecef;
+  overflow: hidden;
+}
+
+.fuerza span {
+  display: block;
+  height: 100%;
+  width: 0;
+  transition: width .2s, background-color .2s;
+}
+
+footer {
+  background: #2b1d17;
+  color: #c9b8a8;
+}

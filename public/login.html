@@ -134,6 +134,7 @@
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/idioma.js"></script>
   <script src="js/comun.js"></script>
   <script>
     pintarMenu('');
@@ -158,24 +159,23 @@
       }
     }
 
-    // #ROLES - Decide a qué página ir después de entrar (según el rol)
+    // #ROLES  #PERMISOS - Decide a qué página ir después de entrar (según sus permisos)
     function paginaDestino(usuario) {
-      // Si venía de otra página (ej: login.html?volver=favoritos.html), regresamos ahí
+      // Si venía de otra página (ej: login.html?volver=favoritos.html), regresamos ahí si puede verla
       const volver = parametro('volver');
-      const paginasDeEditores = ['registro.html', 'mis-registros.html', 'admin.html'];
       if (volver && !volver.startsWith('login.html') && !volver.includes('/') && !volver.includes(':')) {
         const nombrePagina = volver.split('?')[0];
-        const esDeEditores = paginasDeEditores.includes(nombrePagina);
-        const puedeIr = !esDeEditores
-          || usuario.rol === 'admin'
-          || (usuario.rol === 'registrador' && nombrePagina !== 'admin.html');
+        let puedeIr = true;
+        if (nombrePagina === 'admin.html') puedeIr = esAdministrador(usuario);
+        if (nombrePagina === 'mis-registros.html') puedeIr = esEditor(usuario);
+        if (nombrePagina === 'registro.html') puedeIr = esEditor(usuario);
         if (puedeIr) {
           return volver;
         }
       }
-      // Si no, cada rol va a su página principal
-      if (usuario.rol === 'admin') return 'admin.html';
-      if (usuario.rol === 'registrador') return 'mis-registros.html';
+      // Si no, cada uno va a su página principal
+      if (esAdministrador(usuario)) return 'admin.html';
+      if (esEditor(usuario)) return 'mis-registros.html';
       return 'hospedajes.html';
     }
 

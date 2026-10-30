@@ -25,6 +25,7 @@
   <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/idioma.js"></script>
   <script src="js/comun.js"></script>
   <script>
     pintarMenu('hospedajes');
@@ -53,7 +54,11 @@
       }
       if (puedeModificar(h)) {
         botones += `<a class="btn btn-outline-secondary" href="registro.html?id=${h.id}"><i class="bi bi-pencil"></i> Editar</a>`;
+      }
+      if (puedeEliminar(h)) {
         botones += `<button class="btn btn-outline-danger" onclick="eliminar()"><i class="bi bi-trash"></i> Eliminar</button>`;
+      } else if (puedeSolicitarEliminar(h)) {
+        botones += `<button class="btn btn-outline-danger" onclick="pedirEliminacion()"><i class="bi bi-trash"></i> Pedir eliminación</button>`;
       }
       // #GOOGLE_MAPS  #COMO_LLEGAR - Abre la página del hotel en Google Maps (fotos, opiniones, horario)
       botones += `<a class="btn btn-outline-primary" href="${paginaGoogleMaps(h)}" target="_blank"><i class="bi bi-google"></i> Fotos y opiniones en Google Maps</a>`;
@@ -75,6 +80,12 @@
       let avisos = '';
       if (h.revision === 'rechazado' && h.observacion) {
         avisos += `<div class="alert alert-warning"><b>Observación del administrador:</b> ${esc(h.observacion)}</div>`;
+      }
+      // #SOLICITUD_ELIMINACION - Solo lo ven quien la pidió y los administradores
+      if (h.eliminacion_solicitada) {
+        avisos += `<div class="alert alert-danger small"><i class="bi bi-trash"></i>
+          <b>Eliminación pedida</b> por ${esc(h.eliminacion_por_nombre || '—')}: ${esc(h.eliminacion_motivo)}.
+          Falta que un administrador la apruebe en <a href="mis-registros.html?eliminacion=1">Registros</a>.</div>`;
       }
       if (h.es_ejemplo) {
         avisos += `
@@ -134,7 +145,7 @@
             ${listaServicios}
             <!-- #MAPA - Mapa de Google Maps dentro de la página (versión gratis, sin API) -->
             <iframe class="mapa shadow-sm" loading="lazy" title="Mapa"
-              src="https://maps.google.com/maps?q=${h.latitud},${h.longitud}&z=17&output=embed"></iframe>
+              src="https://maps.google.com/maps?q=${h.latitud},${h.longitud}&z=17&hl=${document.documentElement.lang}&output=embed"></iframe>
           </div>
           <div class="col-lg-5">
             <div class="card card-body shadow-sm">
@@ -159,6 +170,16 @@
     function copiar(boton, texto) {
       navigator.clipboard.writeText(texto);
       boton.innerHTML = '<i class="bi bi-check2"></i>';
+    }
+
+    // Botón "Pedir eliminación" (#SOLICITUD_ELIMINACION): si se envía, recargamos para ver el aviso
+    async function pedirEliminacion() {
+      try {
+        const enviada = await solicitarEliminacion(parametro('id'), document.querySelector('h1').textContent);
+        if (enviada) location.reload();
+      } catch (error) {
+        alert(error.message);
+      }
     }
 
     // Botón Eliminar: si se elimina, volvemos al catálogo

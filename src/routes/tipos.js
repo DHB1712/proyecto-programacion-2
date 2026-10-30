@@ -3,21 +3,22 @@
 // RUTAS DE TIPOS DE HOSPEDAJE   (/api/tipos)
 // Hotel, Hotel boutique, Hostal, Posada...
 //   GET  /api/tipos     -> lista de tipos (todos pueden verla)
-//   POST /api/tipos     -> crear un tipo (admin)
-//   PUT  /api/tipos/3   -> editar un tipo (admin)
+//   POST /api/tipos     -> crear un tipo (permiso "tipos")
+//   PUT  /api/tipos/3   -> editar un tipo (permiso "tipos")
 // ==========================================================
 const express = require('express');
 const pool = require('../db');
-const { requiereAdmin } = require('../auth');
+const { requierePermiso, tienePermiso } = require('../auth');
+const requiereTipos = requierePermiso('tipos');   // permiso "Administrar tipos de hospedaje"
 
 const router = express.Router();
 
 // Lista de tipos con cuántos hospedajes aprobados tiene cada uno.
-// El admin puede pedir también los desactivados con ?todos=1
+// Quien administra tipos puede pedir también los desactivados con ?todos=1
 router.get('/', async function (req, res, next) {
   try {
     let soloActivos = 'WHERE t.activo';
-    if (req.usuario && req.usuario.rol === 'admin' && req.query.todos === '1') {
+    if (tienePermiso(req.usuario, 'tipos') && req.query.todos === '1') {
       soloActivos = '';
     }
 
@@ -58,7 +59,7 @@ const MENSAJE_FALTAN_DATOS = 'El nombre y el identificador (sin espacios) son ob
 const MENSAJE_REPETIDO = 'Ya existe un tipo con ese nombre o identificador.';
 
 // Crear un tipo
-router.post('/', requiereAdmin, async function (req, res, next) {
+router.post('/', requiereTipos, async function (req, res, next) {
   try {
     const tipo = leerTipo(req.body);
     if (!tipo) {
@@ -81,7 +82,7 @@ router.post('/', requiereAdmin, async function (req, res, next) {
 });
 
 // Editar un tipo (también sirve para activarlo o desactivarlo)
-router.put('/:id', requiereAdmin, async function (req, res, next) {
+router.put('/:id', requiereTipos, async function (req, res, next) {
   try {
     const tipo = leerTipo(req.body);
     if (!tipo) {

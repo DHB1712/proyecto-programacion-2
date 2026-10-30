@@ -8,14 +8,45 @@
 //   GET    /api/hospedajes/5            -> detalle del hospedaje 5
 //   POST   /api/hospedajes              -> crear
 //   PUT    /api/hospedajes/5            -> editar
-//   DELETE /api/hospedajes/5            -> eliminar
+//   DELETE /api/hospedajes/5            -> eliminar (permiso "eliminar_todos")
+//   POST   /api/hospedajes/5/solicitar-eliminacion -> pedir que se elimine uno propio
+//   PATCH  /api/hospedajes/5/eliminacion -> aprobar o rechazar esa solicitud (admin)
 //   PATCH  /api/hospedajes/5/revision   -> aprobar o rechazar (admin)
 //   PATCH  /api/hospedajes/5/estado     -> activar o desactivar (admin)
 // ==========================================================
 const express = require('express');
 const pool = require('../db');
 const servicios = require('../servicios');
-const { requiereEditor, requiereAdmin } = require('../auth');
+const { requiereEditor, requierePermiso, tienePermiso } = require('../auth');
+
+// #PERMISOS - ¿Puede ver y manejar los registros de TODOS (no solo los suyos)?
+function veTodos(usuario) {
+  return ['editar_todos', 'eliminar_todos', 'aprobar', 'estado'].some(function (p) {
+    return tienePermiso(usuario, p);
+  });
+}
+
+// ¿Es suyo y tiene el permiso "propios"? (puede editarlo y pedir que se elimine)
+function esPropio(usuario, hospedaje) {
+  return tienePermiso(usuario, 'propios') && hospedaje.creado_por === usuario.id;
+}
+
+// #PROTEGER_BORRADO - Borra un hospedaje. La base solo deja borrar si avisamos que somos la aplicación.
+// set_config(..., true) dura solo esta transacción (BEGIN ... COMMIT).
+async function borrarHospedaje(id) {
+  const conexion = await pool.connect();
+  try {
+    await conexion.query('BEGIN');
+    await conexion.query("SELECT set_config('app.permitir_borrado', 'si', true)");
+    await conexion.query('DELETE FROM hospedajes WHERE id = $1', [id]);
+    await conexion.query('COMMIT');
+  } catch (error) {
+    await conexion.query('ROLLBACK');
+    throw error;
+  } finally {
+    conexion.release();
+  }
+}
 
 const router = express.Router();
 
@@ -28,12 +59,26 @@ const CONSULTA_BASE = `
          h.longitud::float AS longitud,
          h.precio_desde::float AS precio_desde,
          h.creado_por AS creado_por_id,
-         t.nombre AS tipo, t.slug AS tipo_slug, t.icono,
-         u.nombre AS creado_por
+         t.nombre AS tipo, t.slug AS tipo_slug, t.icono, t.activo AS tipo_activo,
+         u.nombre AS creado_por,
+         ue.nombre AS eliminacion_por_nombre
   FROM hospedajes h
   JOIN tipos_hospedaje t ON t.id = h.tipo_id
   LEFT JOIN usuarios u ON u.id = h.creado_por
+  LEFT JOIN usuarios ue ON ue.id = h.eliminacion_por
 `;
+
+// #SOLICITUD_ELIMINACION - La solicitud de eliminación solo la ven quien la pidió y quienes manejan todos
+function ocultarSolicitud(hospedaje, usuario) {
+  const puedeVerla = usuario && (veTodos(usuario) || usuario.id === hospedaje.creado_por_id);
+  if (!puedeVerla) {
+    delete hospedaje.eliminacion_solicitada;
+    delete hospedaje.eliminacion_motivo;
+    delete hospedaje.eliminacion_por;
+    delete hospedaje.eliminacion_por_nombre;
+  }
+  return hospedaje;
+}
 
 // #GOOGLE_MAPS - Le agrega a un hospedaje el enlace de Google Maps (con sus coordenadas)
 function agregarEnlaceMaps(hospedaje) {
@@ -46,9 +91,11 @@ function agregarEnlaceMaps(hospedaje) {
 function filtrosDeBusqueda(filtros, valores) {
   let sql = '';
 
-  // Buscar por texto en nombre, descripción, dirección o código
+  // Buscar por texto en nombre, descripción, dirección o código.
+  // % y _ son comodines en ILIKE: les ponemos \ delante para buscarlos como texto normal.
   if (filtros.q) {
-    valores.push('%' + filtros.q + '%');
+    const texto = String(filtros.q).replace(/[\\%_]/g, '\\$&');
+    valores.push('%' + texto + '%');
     const n = valores.length;
     sql += ` AND (h.nombre ILIKE $${n} OR h.descripcion ILIKE $${n} OR h.direccion ILIKE $${n} OR h.codigo ILIKE $${n})`;
   }
@@ -80,7 +127,8 @@ function filtrosDeBusqueda(filtros, valores) {
     sql += ` AND h.servicios @> $${valores.length}::text[]`;
   }
 
-  if (filtros.precio_max) {
+  // Si el precio no es un número válido, no se filtra por precio
+  if (filtros.precio_max && !isNaN(filtros.precio_max)) {
     valores.push(Number(filtros.precio_max));
     sql += ` AND h.precio_desde <= $${valores.length}`;
   }
@@ -173,27 +221,64 @@ function validar(datos) {
   return errores;
 }
 
-// #DUPLICADOS - Busca si ya existe un hospedaje con el mismo nombre o casi en el mismo punto del mapa
-async function buscarDuplicados(datos, idQueSeEdita) {
+// #DUPLICADOS - Nombre repetido: NO se permite (sin importar mayúsculas ni espacios de más).
+// La base de datos también lo impide con el índice hospedajes_nombre_unico.
+async function buscarNombreRepetido(datos, idQueSeEdita) {
   const resultado = await pool.query(
     `SELECT id, codigo, nombre FROM hospedajes
-     WHERE id <> $1
-       AND (LOWER(nombre) = LOWER($2)
-            OR (ABS(latitud - $3) < 0.0002 AND ABS(longitud - $4) < 0.0002))`,
-    [idQueSeEdita || 0, datos.nombre, datos.latitud, datos.longitud]
+     WHERE id <> $1 AND LOWER(TRIM(nombre)) = LOWER(TRIM($2))`,
+    [idQueSeEdita || 0, datos.nombre]
   );
   return resultado.rows;
 }
+
+// #DUPLICADOS - Casi en el mismo punto del mapa (unos 20 metros): solo se avisa,
+// porque dos hoteles distintos pueden estar uno al lado del otro.
+async function buscarMismaUbicacion(datos, idQueSeEdita) {
+  const resultado = await pool.query(
+    `SELECT id, codigo, nombre FROM hospedajes
+     WHERE id <> $1 AND ABS(latitud - $2) < 0.0002 AND ABS(longitud - $3) < 0.0002`,
+    [idQueSeEdita || 0, datos.latitud, datos.longitud]
+  );
+  return resultado.rows;
+}
+
+// Revisa los repetidos antes de guardar. Devuelve la respuesta de error, o null si se puede guardar.
+async function revisarDuplicados(datos, idQueSeEdita, forzar) {
+  const mismoNombre = await buscarNombreRepetido(datos, idQueSeEdita);
+  if (mismoNombre.length > 0) {
+    return {
+      error: 'Ya existe un hospedaje con el nombre "' + mismoNombre[0].nombre + '". Use otro nombre (por ejemplo, agregue la zona o la sucursal).',
+      duplicados: mismoNombre,
+      puedeForzar: false,
+    };
+  }
+
+  if (!forzar) {
+    const mismaUbicacion = await buscarMismaUbicacion(datos, idQueSeEdita);
+    if (mismaUbicacion.length > 0) {
+      return {
+        error: 'Ya existe un hospedaje casi en la misma ubicación.',
+        duplicados: mismaUbicacion,
+        puedeForzar: true,
+      };
+    }
+  }
+  return null;
+}
+
+// Mensaje si la base de datos rechaza un nombre repetido (por ejemplo, si dos personas guardan a la vez)
+const MENSAJE_NOMBRE_REPETIDO = 'Ya existe un hospedaje con ese nombre. Use otro nombre.';
 
 // ==========================================================
 // CONSULTA PÚBLICA
 // ==========================================================
 
-// #CATALOGO - Catálogo: solo hospedajes aprobados y activos
+// #CATALOGO - Catálogo: solo hospedajes aprobados y activos, de un tipo activo
 router.get('/', async function (req, res, next) {
   try {
     const valores = [];
-    let sql = CONSULTA_BASE + " WHERE h.estado = 'activo' AND h.revision = 'aprobado'";
+    let sql = CONSULTA_BASE + " WHERE h.estado = 'activo' AND h.revision = 'aprobado' AND t.activo";
     sql += filtrosDeBusqueda(req.query, valores);
 
     // Orden: por precio (más barato primero) o por nombre
@@ -204,7 +289,9 @@ router.get('/', async function (req, res, next) {
     }
 
     const resultado = await pool.query(sql, valores);
-    res.json(resultado.rows.map(agregarEnlaceMaps));
+    res.json(resultado.rows.map(function (h) {
+      return agregarEnlaceMaps(ocultarSolicitud(h, req.usuario));
+    }));
   } catch (error) {
     next(error);
   }
@@ -214,9 +301,11 @@ router.get('/', async function (req, res, next) {
 router.get('/filtros', async function (req, res, next) {
   try {
     const resultado = await pool.query(
-      `SELECT DISTINCT departamento, municipio FROM hospedajes
-       WHERE estado = 'activo' AND revision = 'aprobado'
-       ORDER BY departamento, municipio`
+      `SELECT DISTINCT h.departamento, h.municipio
+       FROM hospedajes h
+       JOIN tipos_hospedaje t ON t.id = h.tipo_id
+       WHERE h.estado = 'activo' AND h.revision = 'aprobado' AND t.activo
+       ORDER BY h.departamento, h.municipio`
     );
     res.json(resultado.rows);
   } catch (error) {
@@ -228,13 +317,13 @@ router.get('/filtros', async function (req, res, next) {
 // GESTIÓN (admin y registradores)
 // ==========================================================
 
-// #MIS_REGISTROS - Lista para "Mis registros". El registrador solo ve los suyos; el admin ve todos.
+// #MIS_REGISTROS - Lista para "Mis registros". Quien tiene permisos sobre todos ve todos; los demás, solo los suyos.
 router.get('/gestion', requiereEditor, async function (req, res, next) {
   try {
     const valores = [];
     let sql = CONSULTA_BASE + ' WHERE 1 = 1';
 
-    if (req.usuario.rol !== 'admin') {
+    if (!veTodos(req.usuario)) {
       valores.push(req.usuario.id);
       sql += ` AND h.creado_por = $${valores.length}`;
     }
@@ -249,9 +338,14 @@ router.get('/gestion', requiereEditor, async function (req, res, next) {
       valores.push(req.query.estado);
       sql += ` AND h.estado = $${valores.length}`;
     }
+    // ?eliminacion=1 -> solo los que tienen una solicitud de eliminación
+    if (req.query.eliminacion === '1') {
+      sql += ' AND h.eliminacion_solicitada IS NOT NULL';
+    }
 
-    // Primero los pendientes, luego los rechazados y al final los aprobados
-    sql += ` ORDER BY CASE h.revision WHEN 'pendiente' THEN 0 WHEN 'rechazado' THEN 1 ELSE 2 END,
+    // Primero las solicitudes de eliminación, luego pendientes, rechazados y al final aprobados
+    sql += ` ORDER BY (h.eliminacion_solicitada IS NULL),
+             CASE h.revision WHEN 'pendiente' THEN 0 WHEN 'rechazado' THEN 1 ELSE 2 END,
              h.actualizado_en DESC`;
 
     const resultado = await pool.query(sql, valores);
@@ -275,22 +369,22 @@ router.get('/:id', async function (req, res, next) {
       return res.status(404).json({ error: 'Hospedaje no encontrado.' });
     }
 
-    // Si no está aprobado y activo, solo lo ven el admin y quien lo registró
-    const publico = hospedaje.estado === 'activo' && hospedaje.revision === 'aprobado';
+    // Si no está aprobado y activo (o su tipo está desactivado), solo lo ven quienes manejan todos y quien lo registró
+    const publico = hospedaje.estado === 'activo' && hospedaje.revision === 'aprobado' && hospedaje.tipo_activo;
     const usuario = req.usuario;
-    const puedeVerlo = publico || (usuario && (usuario.rol === 'admin' || usuario.id === hospedaje.creado_por_id));
+    const puedeVerlo = publico || (usuario && (veTodos(usuario) || usuario.id === hospedaje.creado_por_id));
     if (!puedeVerlo) {
       return res.status(404).json({ error: 'Hospedaje no encontrado.' });
     }
 
-    res.json(agregarEnlaceMaps(hospedaje));
+    res.json(agregarEnlaceMaps(ocultarSolicitud(hospedaje, usuario)));
   } catch (error) {
     next(error);
   }
 });
 
-// #CREAR_HOSPEDAJE - Crear un hospedaje
-router.post('/', requiereEditor, async function (req, res, next) {
+// #CREAR_HOSPEDAJE - Crear un hospedaje (permiso "registrar")
+router.post('/', requierePermiso('registrar'), async function (req, res, next) {
   try {
     const datos = leerFormulario(req.body);
 
@@ -299,46 +393,58 @@ router.post('/', requiereEditor, async function (req, res, next) {
       return res.status(400).json({ error: errores.join(' '), errores: errores });
     }
 
-    // Avisamos si parece repetido (a menos que el usuario diga "guardar de todos modos")
-    if (!req.body.forzar) {
-      const duplicados = await buscarDuplicados(datos);
-      if (duplicados.length > 0) {
-        return res.status(409).json({
-          error: 'Ya existe un hospedaje con el mismo nombre o la misma ubicación.',
-          duplicados: duplicados,
-        });
-      }
+    // Nombre repetido: se bloquea. Misma ubicación: se avisa (a menos que diga "guardar de todos modos")
+    const repetido = await revisarDuplicados(datos, 0, req.body.forzar === true);
+    if (repetido) {
+      return res.status(409).json(repetido);
     }
 
-    // Lo que registra el admin queda aprobado; lo de los registradores queda pendiente
+    // Con el permiso "publicar" queda aprobado al instante; si no, queda pendiente de revisión
     let revision = 'pendiente';
-    if (req.usuario.rol === 'admin') {
+    if (tienePermiso(req.usuario, 'publicar')) {
       revision = 'aprobado';
     }
 
-    const resultado = await pool.query(
-      `INSERT INTO hospedajes
-         (nombre, tipo_id, descripcion, departamento, municipio, direccion, latitud, longitud,
-          telefono, correo, sitio_web, contacto, precio_desde, servicios, foto_url, revision, creado_por,
-          enlace_maps)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
-       RETURNING id`,
-      [datos.nombre, datos.tipo_id, datos.descripcion, datos.departamento, datos.municipio, datos.direccion,
-       datos.latitud, datos.longitud, datos.telefono, datos.correo, datos.sitio_web, datos.contacto,
-       datos.precio_desde, datos.servicios, datos.foto_url, revision, req.usuario.id,
-       datos.enlace_maps]
-    );
+    // Guardar y ponerle el código son dos pasos: los hacemos en una transacción
+    // (BEGIN ... COMMIT) para que nunca quede un hospedaje sin código.
+    const conexion = await pool.connect();
+    let id, codigo;
+    try {
+      await conexion.query('BEGIN');
+      const resultado = await conexion.query(
+        `INSERT INTO hospedajes
+           (nombre, tipo_id, descripcion, departamento, municipio, direccion, latitud, longitud,
+            telefono, correo, sitio_web, contacto, precio_desde, servicios, foto_url, revision, creado_por,
+            enlace_maps)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         RETURNING id`,
+        [datos.nombre, datos.tipo_id, datos.descripcion, datos.departamento, datos.municipio, datos.direccion,
+         datos.latitud, datos.longitud, datos.telefono, datos.correo, datos.sitio_web, datos.contacto,
+         datos.precio_desde, datos.servicios, datos.foto_url, revision, req.usuario.id,
+         datos.enlace_maps]
+      );
 
-    // El código se arma con el id: 7 -> HOT-0007
-    const id = resultado.rows[0].id;
-    const codigo = 'HOT-' + String(id).padStart(4, '0');
-    await pool.query('UPDATE hospedajes SET codigo = $1 WHERE id = $2', [codigo, id]);
+      // El código se arma con el id: 7 -> HOT-0007
+      id = resultado.rows[0].id;
+      codigo = 'HOT-' + String(id).padStart(4, '0');
+      await conexion.query('UPDATE hospedajes SET codigo = $1 WHERE id = $2', [codigo, id]);
+      await conexion.query('COMMIT');
+    } catch (error) {
+      await conexion.query('ROLLBACK');
+      throw error;   // lo atiende el catch de abajo
+    } finally {
+      conexion.release();   // devolvemos la conexión al pool
+    }
 
     res.status(201).json({ id: id, codigo: codigo, revision: revision });
   } catch (error) {
     // 23503 = el tipo de hospedaje no existe
     if (error.code === '23503') {
       return res.status(400).json({ error: 'El tipo de hospedaje no existe.' });
+    }
+    // 23505 = la base rechazó un nombre repetido
+    if (error.code === '23505' && error.constraint === 'hospedajes_nombre_unico') {
+      return res.status(409).json({ error: MENSAJE_NOMBRE_REPETIDO, puedeForzar: false });
     }
     next(error);
   }
@@ -354,13 +460,10 @@ router.put('/:id', requiereEditor, async function (req, res, next) {
       return res.status(404).json({ error: 'Hospedaje no encontrado.' });
     }
 
-    // El registrador solo puede editar los suyos que todavía no están aprobados
-    const esAdmin = req.usuario.rol === 'admin';
-    if (!esAdmin && hospedaje.creado_por !== req.usuario.id) {
+    // Permiso "editar_todos": cualquiera. Permiso "propios": los que registró esa persona.
+    const editaTodos = tienePermiso(req.usuario, 'editar_todos');
+    if (!editaTodos && !esPropio(req.usuario, hospedaje)) {
       return res.status(403).json({ error: 'Solo puede editar los hospedajes que usted registró.' });
-    }
-    if (!esAdmin && hospedaje.revision === 'aprobado') {
-      return res.status(403).json({ error: 'El registro ya fue aprobado; solo el administrador puede modificarlo.' });
     }
 
     const datos = leerFormulario(req.body);
@@ -369,20 +472,16 @@ router.put('/:id', requiereEditor, async function (req, res, next) {
       return res.status(400).json({ error: errores.join(' '), errores: errores });
     }
 
-    if (!req.body.forzar) {
-      const duplicados = await buscarDuplicados(datos, id);
-      if (duplicados.length > 0) {
-        return res.status(409).json({
-          error: 'Ya existe un hospedaje con el mismo nombre o la misma ubicación.',
-          duplicados: duplicados,
-        });
-      }
+    const repetido = await revisarDuplicados(datos, id, req.body.forzar === true);
+    if (repetido) {
+      return res.status(409).json(repetido);
     }
 
-    // Si lo corrige un registrador, vuelve a quedar pendiente de revisión
+    // Quien revisa o edita todos no cambia la revisión. Si lo corrige alguien más, vuelve a
+    // quedar pendiente (o aprobado, si tiene el permiso "publicar").
     let revision = hospedaje.revision;
-    if (!esAdmin) {
-      revision = 'pendiente';
+    if (!editaTodos && !tienePermiso(req.usuario, 'aprobar')) {
+      revision = tienePermiso(req.usuario, 'publicar') ? 'aprobado' : 'pendiente';
     }
 
     // es_ejemplo: la casilla "Datos de ejemplo" del formulario
@@ -406,31 +505,89 @@ router.put('/:id', requiereEditor, async function (req, res, next) {
     if (error.code === '23503') {
       return res.status(400).json({ error: 'El tipo de hospedaje no existe.' });
     }
+    // 23505 = la base rechazó un nombre repetido
+    if (error.code === '23505' && error.constraint === 'hospedajes_nombre_unico') {
+      return res.status(409).json({ error: MENSAJE_NOMBRE_REPETIDO, puedeForzar: false });
+    }
     next(error);
   }
 });
 
-// #ELIMINAR_HOSPEDAJE - Eliminar un hospedaje
-router.delete('/:id', requiereEditor, async function (req, res, next) {
+// #ELIMINAR_HOSPEDAJE - Eliminar un hospedaje directamente (permiso "eliminar_todos").
+// Quien solo tiene "propios" no borra: envía una solicitud (ruta de abajo).
+router.delete('/:id', requierePermiso('eliminar_todos'), async function (req, res, next) {
   try {
     const id = Number(req.params.id) || 0;
-    const resultado = await pool.query('SELECT creado_por, revision FROM hospedajes WHERE id = $1', [id]);
+    const resultado = await pool.query('SELECT id FROM hospedajes WHERE id = $1', [id]);
+    if (resultado.rowCount === 0) {
+      return res.status(404).json({ error: 'Hospedaje no encontrado.' });
+    }
+    await borrarHospedaje(id);
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// #SOLICITUD_ELIMINACION - Pedir que se elimine un hospedaje que puede editar
+// (permiso "editar_todos": cualquiera; permiso "propios": los suyos).
+// No se borra todavía: un administrador debe aprobarlo.
+router.post('/:id/solicitar-eliminacion', requiereEditor, async function (req, res, next) {
+  try {
+    const id = Number(req.params.id) || 0;
+    const resultado = await pool.query('SELECT creado_por, eliminacion_solicitada FROM hospedajes WHERE id = $1', [id]);
     const hospedaje = resultado.rows[0];
     if (!hospedaje) {
       return res.status(404).json({ error: 'Hospedaje no encontrado.' });
     }
-
-    // El admin elimina cualquiera; el registrador solo los suyos sin aprobar
-    if (req.usuario.rol !== 'admin') {
-      if (hospedaje.creado_por !== req.usuario.id) {
-        return res.status(403).json({ error: 'Solo puede eliminar los hospedajes que usted registró.' });
-      }
-      if (hospedaje.revision === 'aprobado') {
-        return res.status(403).json({ error: 'El registro ya fue aprobado; solo el administrador puede eliminarlo.' });
-      }
+    if (!tienePermiso(req.usuario, 'editar_todos') && !esPropio(req.usuario, hospedaje)) {
+      return res.status(403).json({ error: 'Solo puede pedir que se eliminen los hospedajes que usted registró.' });
+    }
+    if (hospedaje.eliminacion_solicitada) {
+      return res.status(409).json({ error: 'Ya se pidió eliminar este hospedaje; falta que un administrador lo apruebe.' });
     }
 
-    await pool.query('DELETE FROM hospedajes WHERE id = $1', [id]);
+    const motivo = limpiar(req.body.motivo);
+    if (!motivo) {
+      return res.status(400).json({ error: 'Escriba el motivo para eliminar el hospedaje.' });
+    }
+
+    await pool.query(
+      'UPDATE hospedajes SET eliminacion_solicitada = NOW(), eliminacion_motivo = $1, eliminacion_por = $2 WHERE id = $3',
+      [motivo, req.usuario.id, id]
+    );
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// #SOLICITUD_ELIMINACION - El administrador aprueba (se borra) o rechaza (se queda) la solicitud
+router.patch('/:id/eliminacion', requierePermiso('eliminar_todos'), async function (req, res, next) {
+  try {
+    const id = Number(req.params.id) || 0;
+    const decision = req.body.decision;
+    if (decision !== 'aprobar' && decision !== 'rechazar') {
+      return res.status(400).json({ error: 'Decisión no válida.' });
+    }
+
+    const resultado = await pool.query('SELECT eliminacion_solicitada FROM hospedajes WHERE id = $1', [id]);
+    const hospedaje = resultado.rows[0];
+    if (!hospedaje) {
+      return res.status(404).json({ error: 'Hospedaje no encontrado.' });
+    }
+    if (!hospedaje.eliminacion_solicitada) {
+      return res.status(400).json({ error: 'Este hospedaje no tiene una solicitud de eliminación.' });
+    }
+
+    if (decision === 'aprobar') {
+      await borrarHospedaje(id);
+    } else {
+      await pool.query(
+        'UPDATE hospedajes SET eliminacion_solicitada = NULL, eliminacion_motivo = NULL, eliminacion_por = NULL WHERE id = $1',
+        [id]
+      );
+    }
     res.json({ ok: true });
   } catch (error) {
     next(error);
@@ -442,7 +599,7 @@ router.delete('/:id', requiereEditor, async function (req, res, next) {
 // ==========================================================
 
 // #APROBAR_RECHAZAR - Aprobar o rechazar (el rechazo lleva una observación para el registrador)
-router.patch('/:id/revision', requiereAdmin, async function (req, res, next) {
+router.patch('/:id/revision', requierePermiso('aprobar'), async function (req, res, next) {
   try {
     const revision = req.body.revision;
     if (revision !== 'pendiente' && revision !== 'aprobado' && revision !== 'rechazado') {
@@ -463,7 +620,7 @@ router.patch('/:id/revision', requiereAdmin, async function (req, res, next) {
 });
 
 // #ACTIVAR_DESACTIVAR - Activar o desactivar (desactivar lo oculta del catálogo sin borrarlo)
-router.patch('/:id/estado', requiereAdmin, async function (req, res, next) {
+router.patch('/:id/estado', requierePermiso('estado'), async function (req, res, next) {
   try {
     const estado = req.body.estado;
     if (estado !== 'activo' && estado !== 'inactivo') {

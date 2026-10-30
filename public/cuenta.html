@@ -72,6 +72,7 @@
   <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="js/idioma.js"></script>
   <script src="js/comun.js"></script>
   <script>
     const usuario = exigirSesion();
@@ -86,7 +87,9 @@
       document.getElementById('correo').value = yo.correo || '';
 
       const inicial = yo.nombre.trim().charAt(0).toUpperCase();
-      const fecha = new Date(yo.creado_en).toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' });
+      // La fecha sale en el idioma de la página (#IDIOMA)
+      const formatoFecha = document.documentElement.lang === 'en' ? 'en-US' : 'es-GT';
+      const fecha = new Date(yo.creado_en).toLocaleDateString(formatoFecha, { year: 'numeric', month: 'long', day: 'numeric' });
 
       let colorRol = 'secondary';
       if (yo.rol === 'admin') colorRol = 'danger';

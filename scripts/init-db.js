@@ -14,6 +14,12 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+if (ADMIN_PASSWORD && ADMIN_PASSWORD.length < 8) {
+  console.error('ADMIN_PASSWORD debe tener al menos 8 caracteres.');
+  process.exit(1);
+}
+
 const url = new URL(process.env.DATABASE_URL);
 const dbName = url.pathname.replace('/', '');
 const ssl = process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false;
@@ -44,23 +50,37 @@ async function main() {
     await db.query('BEGIN');
     await db.query(fs.readFileSync(path.join(__dirname, '..', 'db', 'schema.sql'), 'utf8'));
 
-    const usuarios = [
-      ['Administrador', 'admin', 'admin123', 'admin'],
-      ['Integrante 1 - Grupo 4', 'registrador1', 'registro123', 'registrador'],
-      ['Integrante 2 - Grupo 4', 'registrador2', 'registro123', 'registrador'],
-      ['Integrante 3 - Grupo 4', 'registrador3', 'registro123', 'registrador'],
-      ['Cliente de prueba', 'cliente1', 'cliente123', 'cliente'],
-    ];
+    // Con ADMIN_PASSWORD (para la base de internet) solo se crea el admin con esa
+    // contraseña; sin ella se crean también los usuarios de prueba.
+    let usuarios;
+    // Integrantes del Grupo 4: los cuatro son administradores
+    if (ADMIN_PASSWORD) {
+      usuarios = [['José Diego de Jesús Hernández Barrientos', 'admin', ADMIN_PASSWORD, 'admin']];
+    } else {
+      usuarios = [
+        ['José Diego de Jesús Hernández Barrientos', 'admin', 'admin123', 'admin'],
+        ['Diego Eduardo Pichillá Gálvez', 'registrador1', 'registro123', 'admin'],
+        ['Diego Andrés Arreaga Hidalgo', 'registrador2', 'registro123', 'admin'],
+        ['Steban André Sebastián Alvarado Bobadilla', 'registrador3', 'registro123', 'admin'],
+        ['Cliente de prueba', 'cliente1', 'cliente123', 'cliente'],
+      ];
+    }
     for (const [nombre, usuario, password, rol] of usuarios) {
-      await db.query('INSERT INTO usuarios (nombre, usuario, password_hash, rol) VALUES ($1,$2,$3,$4)',
-        [nombre, usuario, await bcrypt.hash(password, 10), rol]);
+      // #ADMIN_PRINCIPAL - La cuenta "admin" (José Diego) es el administrador principal
+      await db.query('INSERT INTO usuarios (nombre, usuario, password_hash, rol, es_principal) VALUES ($1,$2,$3,$4,$5)',
+        [nombre, usuario, await bcrypt.hash(password, 10), rol, usuario === 'admin']);
     }
 
     const r = await cargarEjemplos(db);
 
     await db.query('COMMIT');
     console.log(`Tablas creadas con ${r.nuevos} hospedajes de ejemplo.`);
-    console.log('Usuarios: admin / admin123  |  registrador1 ... registrador3 / registro123  |  cliente1 / cliente123');
+    if (ADMIN_PASSWORD) {
+      console.log('Usuario creado: admin (con la contraseña de ADMIN_PASSWORD).');
+    } else {
+      console.log('Usuarios de prueba: admin, registrador1 ... registrador3 y cliente1 (contraseñas en el README).');
+      console.log('No use estos usuarios en la base de internet: ponga ADMIN_PASSWORD antes de db:init.');
+    }
   } catch (err) {
     await db.query('ROLLBACK');
     throw err;

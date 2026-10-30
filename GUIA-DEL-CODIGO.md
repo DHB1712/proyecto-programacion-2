@@ -87,8 +87,20 @@ Sirve para encontrar rápido el código cuando la profesora pregunte "¿dónde h
 |---|---|---|
 | `#COORDENADAS` | Latitud y longitud: cómo se guardan, se validan y se leen de Google Maps | `db/schema.sql`, `src/routes/hospedajes.js`, `public/registro.html` |
 | `#GOOGLE_MAPS` | Enlace a la página del hotel en Google Maps (fotos, opiniones, horario) | `public/js/comun.js`, `public/hospedaje.html`, `public/registro.html`, `src/routes/hospedajes.js`, `db/schema.sql` |
-| `#COMO_LLEGAR` | Botón que abre la ruta en Google Maps desde donde está la persona | `public/js/comun.js`, `public/hospedaje.html` |
-| `#MAPA` | Mapa de Google Maps dentro de la página (gratis, sin API) | `public/hospedaje.html`, `public/registro.html` |
+| `#COMO_LLEGAR` | Botón que abre la ruta en Google Maps desde donde está la persona | `public/js/comun.js`, `public/hospedaje.html`, `public/js/mapa.js` |
+| `#MAPA` | Mapa de Google Maps dentro del detalle del hotel (gratis, sin API) | `public/hospedaje.html` |
+| `#MAPA_OSM` | Mapas de OpenStreetMap con Leaflet (gratis, los hace la comunidad): crear mapa, marcadores y su ventanita | `public/js/mapa.js` |
+| `#MAPA_GENERAL` | Vista "Mapa" del catálogo: todos los hospedajes en el mapa con su directorio al lado | `public/hospedajes.html` |
+| `#ADMIN_PRINCIPAL` | Administrador principal (José Diego): nadie le puede quitar el rol, desactivarlo ni borrarlo, ni desde la app ni desde la base | `db/schema.sql`, `scripts/migrate.js`, `scripts/init-db.js`, `src/routes/usuarios.js`, `public/admin.html` |
+| `#SOLICITUD_ELIMINACION` | El registrador pide eliminar un hotel suyo y un administrador aprueba o rechaza | `db/schema.sql`, `src/routes/hospedajes.js`, `public/js/comun.js`, `public/mis-registros.html`, `public/hospedaje.html` |
+| `#PERMISOS_LISTA` | Lista de permisos que se pueden dar o quitar, y los del registrador por defecto | `src/permisos.js` |
+| `#PERMISOS_EFECTIVOS` | Cómo se calculan los permisos reales de una cuenta (rol + ajustes de la cuenta) | `src/permisos.js`, `src/routes/usuarios.js` |
+| `#TABLA_ROLES` | Tabla `roles` con los permisos de cada rol | `db/schema.sql`, `scripts/migrate.js` |
+| `#IDIOMA` | Traducción de las páginas públicas: lista `IDIOMAS` y un diccionario por idioma (las internas siguen en español) | `public/js/idioma.js`, `public/js/comun.js` |
+| `#MENU_IDIOMA` | Menú desplegable de idioma con banderas en la barra de arriba | `public/js/idioma.js`, `public/css/estilos.css` |
+| `#PROTEGER_BORRADO` | Candado en la base: solo la aplicación puede borrar hospedajes; los intentos de otros programas se anotan en `intentos_borrado` | `db/schema.sql`, `scripts/migrate.js`, `src/routes/hospedajes.js`, `scripts/ejemplos.js` |
+| `#SEGURIDAD_SUPABASE` | Seguridad por filas (RLS) para bloquear la API pública de Supabase | `db/schema.sql`, `scripts/migrate.js` |
+| `#SELECCIONAR_PUNTO` | En el registro, un clic en el mapa llena la latitud y la longitud (el marcador se puede arrastrar) | `public/registro.html` |
 
 ## Páginas (carpeta `public`)
 
@@ -121,6 +133,13 @@ Sirve para encontrar rápido el código cuando la profesora pregunte "¿dónde h
 | ¿Cómo sabe qué puede hacer cada usuario? | `#ROLES` y `#PERMISOS` |
 | ¿Cómo validan las coordenadas? | `#VALIDACION` y `#COORDENADAS` |
 | ¿Cómo usan Google Maps sin pagar? | `#GOOGLE_MAPS`, `#COMO_LLEGAR` y `#MAPA` |
+| ¿Cómo hicieron el mapa con todos los hoteles? | `#MAPA_OSM` y `#MAPA_GENERAL` (OpenStreetMap: gratis, sin clave de API) |
+| ¿Cómo se marca el hotel en el mapa al registrarlo? | `#SELECCIONAR_PUNTO` |
+| ¿Por qué nadie puede quitarle el rol a José Diego? | `#ADMIN_PRINCIPAL` |
+| ¿Cómo funciona pedir que se elimine un hotel? | `#SOLICITUD_ELIMINACION` |
+| ¿Cómo se dan o quitan permisos? ¿Dónde está la pestaña Roles? | `#ROLES`, `#PERMISOS` y `#PERMISOS_LISTA` (`public/admin.html`, `src/routes/usuarios.js`, `src/permisos.js`) |
+| ¿Cómo funciona el botón de inglés? ¿Dónde agrego una traducción? | `#IDIOMA` (diccionario `TRADUCCIONES` en `public/js/idioma.js`) |
+| ¿Por qué otro programa no puede borrar hospedajes? | `#PROTEGER_BORRADO` |
 | ¿De dónde salen las fotos de los hoteles? | `#GOOGLE_MAPS`: no guardamos fotos, cada hotel enlaza a su página en Google Maps |
 | ¿Cómo piden los datos las páginas? | `#API_FETCH` |
 | ¿Cómo evitan hoteles repetidos? | `#DUPLICADOS` |

@@ -34,9 +34,53 @@ function cerrarSesion() {
   location.href = 'index.html';
 }
 
-// ¿Es administrador o registrador? (los que pueden registrar hospedajes)
+// #PERMISOS - Permisos de la cuenta (los manda el servidor al iniciar sesión).
+// Si la sesión es de antes de que existieran los permisos, usamos los de su rol.
+function permisosDe(usuario) {
+  if (!usuario) return [];
+  if (Array.isArray(usuario.permisos)) return usuario.permisos;
+  if (usuario.rol === 'admin') return ['registrar', 'propios', 'editar_todos', 'eliminar_todos', 'aprobar', 'publicar', 'estado', 'tipos', 'usuarios'];
+  if (usuario.rol === 'registrador') return ['registrar', 'propios', 'editar_todos', 'publicar'];
+  return [];
+}
+
+// ¿Tiene este permiso? Ej.: tienePermiso(usuarioActual(), 'aprobar')
+function tienePermiso(usuario, permiso) {
+  return permisosDe(usuario).includes(permiso);
+}
+
+// ¿Maneja hospedajes? (tiene al menos un permiso: administradores y registradores)
 function esEditor(usuario) {
-  return usuario !== null && (usuario.rol === 'admin' || usuario.rol === 'registrador');
+  return permisosDe(usuario).length > 0;
+}
+
+// ¿Puede ver y manejar los registros de todos (no solo los suyos)?
+function veTodos(usuario) {
+  return ['editar_todos', 'eliminar_todos', 'aprobar', 'estado'].some(function (p) {
+    return tienePermiso(usuario, p);
+  });
+}
+
+// ¿Puede entrar a Administración?
+function esAdministrador(usuario) {
+  return tienePermiso(usuario, 'usuarios') || tienePermiso(usuario, 'tipos');
+}
+
+// Pide al servidor los datos y permisos actuales de la cuenta y los guarda.
+// Así, si el administrador cambia los permisos, la página se entera sin volver a entrar.
+async function refrescarSesion() {
+  const usuario = usuarioActual();
+  if (!usuario) return null;
+  try {
+    const yo = await api('/auth/yo');
+    const actualizado = Object.assign({}, usuario, {
+      nombre: yo.nombre, correo: yo.correo, rol: yo.rol, permisos: yo.permisos,
+    });
+    localStorage.setItem('usuario', JSON.stringify(actualizado));
+    return actualizado;
+  } catch (error) {
+    return usuario;
+  }
 }
 
 const NOMBRE_ROL = {
@@ -178,7 +222,14 @@ async function cargarServicios() {
 // "activa" es la página donde estamos, para resaltarla.
 // ==========================================================
 
+let menuActivo = null;   // la página marcada en el menú (para volver a dibujarlo)
+
 function pintarMenu(activa) {
+  // La primera vez, revisamos con el servidor si cambiaron los permisos y redibujamos el menú
+  if (menuActivo === null && usuarioActual()) {
+    refrescarSesion().then(function () { pintarMenu(menuActivo); });
+  }
+  menuActivo = activa;
   const usuario = usuarioActual();
 
   // Crea un enlace del menú
@@ -195,22 +246,23 @@ function pintarMenu(activa) {
   if (usuario) {
     enlaces += enlace('favoritos.html', 'Mis favoritos', 'favoritos');
   }
-  if (esEditor(usuario)) {
+  // Cada enlace aparece solo si la cuenta tiene el permiso (#PERMISOS)
+  if (tienePermiso(usuario, 'registrar')) {
     enlaces += enlace('registro.html', 'Registrar hospedaje', 'registro');
-    if (usuario.rol === 'admin') {
-      enlaces += enlace('mis-registros.html', 'Todos los registros', 'mis');
-      enlaces += enlace('admin.html', 'Administración', 'admin');
-    } else {
-      enlaces += enlace('mis-registros.html', 'Mis registros', 'mis');
-    }
+  }
+  if (esEditor(usuario)) {
+    enlaces += enlace('mis-registros.html', veTodos(usuario) ? 'Todos los registros' : 'Mis registros', 'mis');
+  }
+  if (esAdministrador(usuario)) {
+    enlaces += enlace('admin.html', 'Administración', 'admin');
   }
 
   // Parte de la derecha
   let derecha = '';
   if (!usuario) {
     derecha = `
-      <a class="btn btn-outline-light btn-sm" href="login.html"><i class="bi bi-box-arrow-in-right"></i> Iniciar sesión</a>
-      <a class="btn btn-warning btn-sm" href="login.html?modo=crear">Crear cuenta</a>`;
+      <a class="btn btn-outline-secondary btn-sm" href="login.html">Iniciar sesión</a>
+      <a class="btn btn-primary btn-sm" href="login.html?modo=crear">Crear cuenta</a>`;
   } else {
     const inicial = usuario.nombre.trim().charAt(0).toUpperCase();
 
@@ -218,17 +270,17 @@ function pintarMenu(activa) {
     if (esEditor(usuario)) {
       opcionesExtra += '<li><a class="dropdown-item" href="mis-registros.html"><i class="bi bi-list-check"></i> Registros</a></li>';
     }
-    if (usuario.rol === 'admin') {
+    if (esAdministrador(usuario)) {
       opcionesExtra += '<li><a class="dropdown-item" href="admin.html"><i class="bi bi-speedometer2"></i> Administración</a></li>';
     }
 
     derecha = `
       <div class="dropdown">
-        <button class="btn btn-outline-light btn-sm dropdown-toggle d-flex align-items-center gap-2" data-bs-toggle="dropdown">
+        <button class="btn btn-sm boton-usuario dropdown-toggle d-flex align-items-center gap-2" data-bs-toggle="dropdown">
           <span class="avatar">${esc(inicial)}</span>
           <span class="text-start lh-sm">
             <span class="d-block">${esc(usuario.nombre)}</span>
-            <span class="d-block small opacity-75">${NOMBRE_ROL[usuario.rol]}</span>
+            <span class="d-block small text-muted">${NOMBRE_ROL[usuario.rol]}</span>
           </span>
         </button>
         <ul class="dropdown-menu dropdown-menu-end">
@@ -241,15 +293,20 @@ function pintarMenu(activa) {
       </div>`;
   }
 
+  // #IDIOMA - Botón ES | EN (solo en las páginas públicas, que cargan js/idioma.js)
+  if (typeof botonIdioma === 'function') {
+    derecha = botonIdioma() + derecha;
+  }
+
   document.getElementById('menu').innerHTML = `
-    <nav class="navbar navbar-expand-xl navbar-dark barra">
+    <nav class="navbar navbar-expand-xl navbar-light barra">
       <div class="container">
-        <a class="navbar-brand fw-semibold" href="index.html"><i class="bi bi-building"></i> Hospedajes Antigua</a>
+        <a class="navbar-brand" href="index.html"><span class="logo"><i class="bi bi-building"></i></span> Hospedajes Antigua</a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav" aria-label="Menú">
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="nav">
-          <ul class="navbar-nav me-auto">${enlaces}</ul>
+          <ul class="navbar-nav ms-xl-3 me-auto gap-xl-1">${enlaces}</ul>
           <div class="d-flex align-items-center gap-2">${derecha}</div>
         </div>
       </div>
@@ -281,15 +338,68 @@ function exigirSesion(rolesPermitidos) {
   return usuario;
 }
 
-// ¿Puede editar o eliminar este hospedaje?
-// El admin siempre; el registrador solo los suyos que no estén aprobados.
+// ¿Es suyo y tiene el permiso "propios"?
+function esPropio(usuario, hospedaje) {
+  return tienePermiso(usuario, 'propios') && usuario.id === hospedaje.creado_por_id;
+}
+
+// ¿Puede editar este hospedaje? (permiso "editar_todos", o "propios" si es suyo)
 function puedeModificar(hospedaje) {
   const usuario = usuarioActual();
   if (!usuario) return false;
-  if (usuario.rol === 'admin') return true;
-  return usuario.rol === 'registrador'
-    && usuario.id === hospedaje.creado_por_id
-    && hospedaje.revision !== 'aprobado';
+  return tienePermiso(usuario, 'editar_todos') || esPropio(usuario, hospedaje);
+}
+
+// ¿Puede eliminarlo directamente? (permiso "eliminar_todos")
+function puedeEliminar(hospedaje) {
+  return tienePermiso(usuarioActual(), 'eliminar_todos');
+}
+
+// #SOLICITUD_ELIMINACION - ¿Puede pedir que se elimine? (puede editarlo, no puede borrar directo y aún no se pidió)
+function puedeSolicitarEliminar(hospedaje) {
+  if (!usuarioActual() || puedeEliminar(hospedaje)) return false;
+  return puedeModificar(hospedaje) && !hospedaje.eliminacion_solicitada;
+}
+
+// Pide el motivo y envía la solicitud. Devuelve true si se envió.
+async function solicitarEliminacion(id, nombre) {
+  const motivo = prompt('¿Por qué quieres eliminar "' + nombre + '"?\nUn administrador revisará la solicitud.');
+  if (motivo === null) {
+    return false;   // canceló
+  }
+  if (motivo.trim() === '') {
+    alert('Escribe el motivo para pedir la eliminación.');
+    return false;
+  }
+  await api('/hospedajes/' + id + '/solicitar-eliminacion', { method: 'POST', body: { motivo: motivo } });
+  alert('Solicitud enviada. El hospedaje se eliminará cuando un administrador lo apruebe.');
+  return true;
+}
+
+// Para el botón "Pedir eliminación" de las tarjetas del catálogo
+async function solicitarDesdeTarjeta(boton) {
+  try {
+    const enviada = await solicitarEliminacion(boton.dataset.id, boton.dataset.nombre);
+    if (enviada) location.reload();
+  } catch (error) {
+    alert(error.message);
+  }
+}
+
+// Si no tiene ninguno de esos permisos, lo manda al login. (null = cualquier permiso de gestión)
+// Ejemplo: exigirPermiso(['usuarios', 'tipos'])
+function exigirPermiso(permisos) {
+  const usuario = exigirSesion();
+  if (!usuario) return null;
+  const tiene = permisos === null
+    ? esEditor(usuario)
+    : permisos.some(function (p) { return tienePermiso(usuario, p); });
+  if (!tiene) {
+    const paginaActual = location.pathname.substring(1) + location.search;
+    location.href = 'login.html?motivo=permiso&volver=' + encodeURIComponent(paginaActual);
+    return null;
+  }
+  return usuario;
 }
 
 // #ELIMINAR_HOSPEDAJE - Pregunta antes de eliminar. Devuelve true si se eliminó.
@@ -433,22 +543,33 @@ function tarjetaHospedaje(h, servicios) {
     etiquetaEjemplo = '<span class="badge rounded-pill etiqueta-ejemplo" title="Datos de ejemplo sin verificar">Ejemplo</span>';
   }
 
-  let textoPrecio = '';
+  let textoPrecio = '<span class="small text-muted">Precio no disponible</span>';
   if (h.precio_desde !== null) {
-    textoPrecio = `<span class="small fw-semibold">desde ${precio(h.precio_desde)}</span>`;
+    textoPrecio = `<span class="precio-tarjeta">${precio(h.precio_desde)} <small>/ noche</small></span>`;
   }
 
-  // Botones Editar y Eliminar (solo si tiene permiso)
+  // Botones Editar y Eliminar (cada uno solo si tiene el permiso)
   let botonesAdmin = '';
   if (puedeModificar(h)) {
-    botonesAdmin = `
-      <div class="card-footer bg-transparent d-flex gap-2">
-        <a href="registro.html?id=${h.id}" class="btn btn-outline-secondary btn-sm flex-fill"><i class="bi bi-pencil"></i> Editar</a>
+    botonesAdmin += `<a href="registro.html?id=${h.id}" class="btn btn-outline-secondary btn-sm flex-fill"><i class="bi bi-pencil"></i> Editar</a>`;
+  }
+  if (puedeEliminar(h)) {
+    botonesAdmin += `
         <button type="button" class="btn btn-outline-danger btn-sm flex-fill"
                 data-id="${h.id}" data-nombre="${esc(h.nombre)}" onclick="eliminarDesdeTarjeta(this)">
           <i class="bi bi-trash"></i> Eliminar
-        </button>
-      </div>`;
+        </button>`;
+  } else if (puedeSolicitarEliminar(h)) {
+    botonesAdmin += `
+        <button type="button" class="btn btn-outline-danger btn-sm flex-fill"
+                data-id="${h.id}" data-nombre="${esc(h.nombre)}" onclick="solicitarDesdeTarjeta(this)">
+          <i class="bi bi-trash"></i> Pedir eliminación
+        </button>`;
+  } else if (h.eliminacion_solicitada && puedeModificar(h)) {
+    botonesAdmin += '<span class="small text-muted align-self-center"><i class="bi bi-hourglass-split"></i> Eliminación pedida</span>';
+  }
+  if (botonesAdmin !== '') {
+    botonesAdmin = `<div class="card-footer bg-transparent d-flex gap-2">${botonesAdmin}</div>`;
   }
 
   return `
@@ -456,24 +577,21 @@ function tarjetaHospedaje(h, servicios) {
       <div class="card h-100 tarjeta-lugar shadow-sm position-relative">
         ${botonFavorito(h.id, false)}
         ${foto}
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start mb-2">
-            <span>
-              <span class="badge rounded-pill text-bg-light border"><i class="bi ${esc(h.icono)}"></i> ${esc(h.tipo)}</span>
-              ${etiquetaEjemplo}
-            </span>
-            ${textoPrecio}
+        <div class="card-body pb-2">
+          <div class="mb-2">
+            <span class="badge text-bg-light border"><i class="bi ${esc(h.icono)}"></i> ${esc(h.tipo)}</span>
+            ${etiquetaEjemplo}
           </div>
           <h5 class="card-title mb-1">${esc(h.nombre)}</h5>
-          <p class="text-muted small mb-2"><i class="bi bi-pin-map"></i> ${esc(h.direccion || h.municipio)}</p>
-          <p class="card-text small texto-corto">${esc(h.descripcion)}</p>
+          <p class="text-muted small mb-2"><i class="bi bi-geo-alt"></i> ${esc(h.direccion || h.municipio)}</p>
+          <p class="card-text small texto-corto mb-2">${esc(h.descripcion)}</p>
           <div>${iconosServicios(h.servicios, servicios, 6)}</div>
         </div>
-        <div class="card-footer bg-transparent border-0 d-flex gap-2 pb-3">
-          <a href="hospedaje.html?id=${h.id}" class="btn btn-primary btn-sm flex-fill">Ver detalle</a>
-          <a href="${paginaGoogleMaps(h)}" target="_blank" class="btn btn-outline-secondary btn-sm" title="Fotos y opiniones en Google Maps">
-            <i class="bi bi-google"></i> Ver en Google Maps
-          </a>
+        <div class="card-footer bg-transparent border-0 d-flex align-items-center gap-2 pt-0 pb-3">
+          <div class="me-auto">${textoPrecio}</div>
+          <a href="${paginaGoogleMaps(h)}" target="_blank" class="btn btn-outline-secondary btn-sm btn-icono"
+             title="Fotos y opiniones en Google Maps" aria-label="Ver en Google Maps"><i class="bi bi-google"></i></a>
+          <a href="hospedaje.html?id=${h.id}" class="btn btn-primary btn-sm">Ver detalle</a>
         </div>
         ${botonesAdmin}
       </div>

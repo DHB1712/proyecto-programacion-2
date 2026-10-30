@@ -41,6 +41,8 @@ async function cargarEjemplos(db) {
   }
 
   // 2. Borrar los ejemplos viejos
+  // (abrimos el candado de la base: ver db/schema.sql #PROTEGER_BORRADO)
+  await db.query("SELECT set_config('app.permitir_borrado', 'si', false)");
   const borrados = await db.query(
     'DELETE FROM hospedajes WHERE nombre = ANY($1) AND (es_ejemplo OR nombre LIKE $2)',
     [EJEMPLOS_VIEJOS, '%de ejemplo%']

@@ -13,6 +13,7 @@
   <title>Registrar hospedaje - Hospedajes Antigua</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
   <link href="css/estilos.css" rel="stylesheet">
 </head>
 <body>
@@ -108,7 +109,18 @@
       <div class="col-lg-5">
         <div class="card card-body shadow-sm">
           <h2 class="h6 text-muted mb-3">Ubicación</h2>
-          <label class="form-label small" for="pegar">Pega aquí el enlace de Google Maps o las coordenadas</label>
+
+          <!-- #SELECCIONAR_PUNTO - Mapa de OpenStreetMap: un clic marca el lugar y llena las coordenadas -->
+          <div class="alert alert-light border small py-2 mb-2">
+            <i class="bi bi-hand-index"></i> <b>Haz clic en el mapa</b> sobre el hotel para marcarlo.
+            Puedes arrastrar el marcador para ajustarlo.
+          </div>
+          <div id="mapaRegistro" class="mapa mb-1"></div>
+          <div class="d-flex justify-content-end mb-3">
+            <a class="small d-none" id="comprobarMaps" target="_blank"><i class="bi bi-google"></i> Comprobar el punto en Google Maps</a>
+          </div>
+
+          <label class="form-label small" for="pegar">O pega aquí el enlace de Google Maps o las coordenadas</label>
           <div class="input-group mb-1">
             <input class="form-control" id="pegar" placeholder="14.5594, -90.7290">
             <button class="btn btn-outline-secondary" type="button" id="btnPegar">Usar</button>
@@ -131,9 +143,6 @@
             <input class="form-control" id="enlace_maps" type="url" placeholder="https://maps.app.goo.gl/...">
             <div class="form-text">En Google Maps busca el hotel, toca "Compartir" y copia el enlace. Si lo dejas vacío, la página buscará el hotel por su nombre.</div>
           </div>
-
-          <iframe class="mapa d-none" id="vistaMapa" title="Vista previa"></iframe>
-          <p class="small text-muted mt-2 mb-0" id="ayudaMapa">Escribe las coordenadas para ver el punto en el mapa.</p>
         </div>
 
         <div class="d-flex gap-2 mt-3">
@@ -147,10 +156,12 @@
   <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="js/comun.js"></script>
+  <script src="js/mapa.js"></script>
   <script>
-    // Solo admin y registradores pueden entrar a esta página
-    const usuario = exigirSesion(['admin', 'registrador']);
+    // Solo quien puede registrar o editar hospedajes entra a esta página (#PERMISOS)
+    const usuario = exigirPermiso(['registrar', 'propios', 'editar_todos']);
     pintarMenu('registro');
 
     const mensaje = document.getElementById('mensaje');
@@ -182,22 +193,60 @@
       return null;
     }
 
-    // #MAPA - Muestra el punto en el mapa pequeño
+    // #SELECCIONAR_PUNTO  #MAPA_OSM - Mapa para marcar el lugar (OpenStreetMap)
+    const mapa = crearMapa('mapaRegistro', 15);
+    let marcador = null;   // se crea con el primer clic o al escribir coordenadas
+
+    // Pone las coordenadas en los campos (con 6 decimales, unos 10 cm de precisión)
+    function ponerCoordenadas(posicion) {
+      document.getElementById('latitud').value = posicion.lat.toFixed(6);
+      document.getElementById('longitud').value = posicion.lng.toFixed(6);
+      actualizarEnlaceComprobar();
+    }
+
+    // Clic en el mapa: movemos el marcador ahí y llenamos latitud y longitud
+    mapa.on('click', function (evento) {
+      ponerCoordenadas(evento.latlng);
+      actualizarMapa();
+    });
+
+    // Enlace para revisar el mismo punto en Google Maps
+    function actualizarEnlaceComprobar() {
+      const lat = document.getElementById('latitud').value;
+      const lng = document.getElementById('longitud').value;
+      const enlace = document.getElementById('comprobarMaps');
+      enlace.href = urlMaps(lat, lng);
+      enlace.classList.toggle('d-none', lat === '' || lng === '');
+    }
+
+    // #MAPA - Pone el marcador donde dicen los campos de latitud y longitud
     function actualizarMapa() {
       const lat = document.getElementById('latitud').value;
       const lng = document.getElementById('longitud').value;
-      const mapa = document.getElementById('vistaMapa');
-      const ayuda = document.getElementById('ayudaMapa');
-
       const correctas = lat !== '' && lng !== '' && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
-      if (correctas) {
-        mapa.src = `https://maps.google.com/maps?q=${lat},${lng}&z=17&output=embed`;
-        mapa.classList.remove('d-none');
-        ayuda.classList.add('d-none');
-      } else {
-        mapa.classList.add('d-none');
-        ayuda.classList.remove('d-none');
+
+      if (!correctas) {
+        // Sin coordenadas (ej. formulario limpio): quitamos el marcador
+        if (marcador) {
+          marcador.remove();
+          marcador = null;
+        }
+        actualizarEnlaceComprobar();
+        return;
       }
+
+      const posicion = [Number(lat), Number(lng)];
+      if (marcador) {
+        marcador.setLatLng(posicion);
+      } else {
+        // El marcador se puede arrastrar para ajustar el punto
+        marcador = L.marker(posicion, { draggable: true, icon: iconoMarcador('bi-geo-alt-fill') }).addTo(mapa);
+        marcador.on('dragend', function () {
+          ponerCoordenadas(marcador.getLatLng());
+        });
+      }
+      mapa.setView(posicion, Math.max(mapa.getZoom(), 17));
+      actualizarEnlaceComprobar();
     }
 
     document.getElementById('latitud').addEventListener('change', actualizarMapa);
@@ -279,14 +328,25 @@
         }
       } catch (error) {
         if (error.status === 409) {
-          // Posible repetido: mostramos cuáles se parecen
+          // Repetido: mostramos cuáles se parecen
           let lista = '';
-          for (const d of error.datos.duplicados) {
+          for (const d of error.datos.duplicados || []) {
             lista += `<li><a href="hospedaje.html?id=${d.id}" target="_blank">${esc(d.codigo)} · ${esc(d.nombre)}</a></li>`;
           }
-          alerta(mensaje, `${esc(error.message)}<ul class="mb-2">${lista}</ul>
-            Si estás seguro de que es un hospedaje diferente:
-            <button type="button" class="btn btn-sm btn-warning ms-1" onclick="guardar(true)">Guardar de todos modos</button>`, 'warning');
+          if (lista !== '') {
+            lista = `<ul class="mb-2 mt-2">${lista}</ul>`;
+          }
+
+          if (error.datos.puedeForzar) {
+            // Misma ubicación: se puede guardar si de verdad es otro hotel
+            alerta(mensaje, `${esc(error.message)}${lista}
+              Si estás seguro de que es un hospedaje diferente:
+              <button type="button" class="btn btn-sm btn-warning ms-1" onclick="guardar(true)">Guardar de todos modos</button>`, 'warning');
+          } else {
+            // Mismo nombre: no se permite guardar
+            alerta(mensaje, `${esc(error.message)}${lista}`, 'danger');
+            document.getElementById('nombre').classList.add('is-invalid');
+          }
         } else {
           alerta(mensaje, esc(error.message));
         }
@@ -296,6 +356,11 @@
       window.scrollTo(0, 0);
     }
 
+    // Al cambiar el nombre, quitamos la marca roja de "nombre repetido"
+    document.getElementById('nombre').addEventListener('input', function () {
+      this.classList.remove('is-invalid');
+    });
+
     document.getElementById('formulario').addEventListener('submit', function (evento) {
       evento.preventDefault();   // que no recargue la página
       guardar(false);
@@ -304,9 +369,15 @@
     // ----- Al abrir la página -----
 
     async function iniciar() {
-      // Lista de tipos (el admin ve también los desactivados)
+      // Permisos al día y aviso de cómo queda lo que registre
+      await refrescarSesion();
+      if (!idEditar && tienePermiso(usuarioActual(), 'publicar')) {
+        document.getElementById('subtitulo').textContent = 'Los campos con * son obligatorios. Lo que registres se publicará de inmediato.';
+      }
+
+      // Lista de tipos (quien administra tipos ve también los desactivados)
       let ruta = '/tipos';
-      if (usuario.rol === 'admin') ruta = '/tipos?todos=1';
+      if (tienePermiso(usuarioActual(), 'tipos')) ruta = '/tipos?todos=1';
       const tipos = await api(ruta);
 
       let opciones = '<option value="">Seleccione...</option>';
@@ -355,8 +426,8 @@
         if (h.revision === 'rechazado' && h.observacion) {
           alerta(mensaje, '<b>Observación del administrador:</b> ' + esc(h.observacion), 'warning');
         }
-        if (usuario.rol === 'admin') {
-          document.getElementById('subtitulo').textContent = 'Como administrador, los cambios se guardan sin cambiar el estado de revisión.';
+        if (tienePermiso(usuarioActual(), 'editar_todos') || tienePermiso(usuarioActual(), 'aprobar')) {
+          document.getElementById('subtitulo').textContent = 'Los cambios se guardan sin cambiar el estado de revisión.';
         }
       }
     }

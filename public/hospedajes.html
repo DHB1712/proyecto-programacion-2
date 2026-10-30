@@ -12,77 +12,208 @@
   <title>Catálogo de hospedajes - Hospedajes Antigua</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
   <link href="css/estilos.css" rel="stylesheet">
 </head>
 <body>
   <div id="menu"></div>
 
   <main class="container py-4">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-      <h1 class="h3 mb-0">Catálogo de hoteles y hospedajes</h1>
+    <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-4 encabezado-pagina">
+      <div>
+        <h1 class="h2">Hoteles y hospedajes</h1>
+        <p class="text-muted mb-0">Encuentra dónde quedarte en Antigua Guatemala.</p>
+      </div>
       <!-- Este botón solo se muestra al admin y a los registradores -->
       <a class="btn btn-primary d-none" href="registro.html" id="btnNuevo"><i class="bi bi-plus-lg"></i> Agregar hospedaje</a>
     </div>
 
-    <!-- Filtros de búsqueda -->
-    <form id="filtros" class="card card-body shadow-sm mb-4">
-      <div class="row g-2">
-        <div class="col-12 col-lg-4">
-          <label class="form-label small" for="q">Nombre</label>
-          <input class="form-control" id="q" placeholder="Nombre, dirección o descripción">
+    <!-- Filtros de búsqueda: arriba los principales, el resto en "Más filtros" -->
+    <form id="filtros" class="card card-body shadow-sm mb-4 p-3">
+      <div class="row g-2 align-items-center">
+        <div class="col-12 col-lg">
+          <label class="visually-hidden" for="q">Buscar</label>
+          <div class="campo-icono">
+            <i class="bi bi-search"></i>
+            <input class="form-control" id="q" placeholder="Buscar por nombre, dirección o descripción">
+          </div>
+        </div>
+        <div class="col-6 col-lg-3">
+          <label class="visually-hidden" for="tipo">Tipo</label>
+          <select class="form-select" id="tipo"><option value="">Todos los tipos</option></select>
         </div>
         <div class="col-6 col-lg-2">
-          <label class="form-label small" for="tipo">Tipo</label>
-          <select class="form-select" id="tipo"><option value="">Todos</option></select>
+          <label class="visually-hidden" for="precio_max">Precio máximo (Q)</label>
+          <input class="form-control" id="precio_max" type="number" min="0" step="50" placeholder="Precio máx. (Q)">
         </div>
-        <div class="col-6 col-lg-2">
-          <label class="form-label small" for="departamento">Departamento</label>
-          <select class="form-select" id="departamento"><option value="">Todos</option></select>
-        </div>
-        <div class="col-6 col-lg-2">
-          <label class="form-label small" for="municipio">Municipio</label>
-          <select class="form-select" id="municipio"><option value="">Todos</option></select>
-        </div>
-        <div class="col-6 col-lg-2">
-          <label class="form-label small" for="precio_max">Precio máximo (Q)</label>
-          <input class="form-control" id="precio_max" type="number" min="0" step="50" placeholder="Sin límite">
+        <div class="col-12 col-lg-auto">
+          <button type="button" class="btn btn-outline-secondary w-100" data-bs-toggle="collapse" data-bs-target="#masFiltros" aria-expanded="false" aria-controls="masFiltros">
+            <i class="bi bi-sliders"></i> Más filtros<span class="contador-filtros d-none" id="contadorFiltros"></span>
+          </button>
         </div>
       </div>
 
-      <div class="mt-3">
-        <span class="form-label small d-block">Servicios</span>
-        <div id="servicios" class="d-flex flex-wrap gap-1"></div>
-      </div>
-
-      <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-3">
-        <div class="d-flex align-items-center gap-2">
-          <label class="small text-nowrap" for="orden">Ordenar por</label>
-          <select class="form-select form-select-sm" id="orden">
-            <option value="">Nombre</option>
-            <option value="precio">Precio más bajo</option>
-          </select>
+      <!-- Filtros extra: departamento, municipio y servicios -->
+      <div class="collapse" id="masFiltros">
+        <hr class="my-3">
+        <div class="row g-2">
+          <div class="col-6 col-lg-3">
+            <label class="form-label small" for="departamento">Departamento</label>
+            <select class="form-select" id="departamento"><option value="">Todos</option></select>
+          </div>
+          <div class="col-6 col-lg-3">
+            <label class="form-label small" for="municipio">Municipio</label>
+            <select class="form-select" id="municipio"><option value="">Todos</option></select>
+          </div>
         </div>
-        <button type="button" id="btnLimpiar" class="btn btn-outline-secondary btn-sm"><i class="bi bi-x-lg"></i> Limpiar filtros</button>
+        <div class="mt-3">
+          <span class="form-label small d-block">Servicios</span>
+          <div id="servicios" class="fichas"></div>
+        </div>
+        <div class="d-flex justify-content-end mt-3">
+          <button type="button" id="btnLimpiar" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-counterclockwise"></i> Limpiar filtros</button>
+        </div>
       </div>
     </form>
 
-    <!-- Aquí se dibujan las tarjetas de los hospedajes -->
-    <p class="text-muted small" id="contador"></p>
+    <!-- Contador, orden y botones para cambiar entre lista y mapa -->
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+      <p class="fw-semibold mb-0" id="contador"></p>
+      <div class="d-flex align-items-center gap-2">
+        <label class="visually-hidden" for="orden">Ordenar por</label>
+        <select class="form-select form-select-sm w-auto" id="orden" form="filtros">
+          <option value="">Ordenar: nombre</option>
+          <option value="precio">Ordenar: precio más bajo</option>
+        </select>
+        <div class="segmentado" role="group" aria-label="Forma de ver los resultados">
+          <input type="radio" class="btn-check" name="vista" id="vistaLista" value="lista" checked>
+          <label class="btn btn-sm" for="vistaLista"><i class="bi bi-grid"></i> Lista</label>
+          <input type="radio" class="btn-check" name="vista" id="vistaMapa" value="mapa">
+          <label class="btn btn-sm" for="vistaMapa"><i class="bi bi-map"></i> Mapa</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vista de lista: aquí se dibujan las tarjetas de los hospedajes -->
     <div class="row g-3" id="resultados"></div>
+
+    <!-- #MAPA_GENERAL - Vista de mapa: todos los hospedajes en OpenStreetMap con su directorio al lado -->
+    <div class="row g-3 d-none" id="cajaMapa">
+      <div class="col-lg-8">
+        <div id="mapaGeneral" class="mapa mapa-grande shadow-sm"></div>
+      </div>
+      <div class="col-lg-4">
+        <div class="list-group directorio shadow-sm" id="directorio"></div>
+      </div>
+    </div>
   </main>
 
   <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="js/idioma.js"></script>
   <script src="js/comun.js"></script>
+  <script src="js/mapa.js"></script>
   <script>
     pintarMenu('hospedajes');
 
     let servicios = [];     // lista de servicios (wifi, parqueo...)
     let ubicaciones = [];   // departamentos y municipios que tienen hospedajes
+    let encontrados = [];   // hospedajes de la última búsqueda (para el mapa)
 
-    // Mostrar el botón "Agregar hospedaje" al admin y registradores
-    if (esEditor(usuarioActual())) {
+    // ----- Mapa general -----   #MAPA_GENERAL
+    let mapa = null;          // se crea la primera vez que se abre la vista de mapa
+    let capaMarcadores = null;
+    let marcadores = {};      // id del hospedaje -> su marcador
+
+    function vistaElegida() {
+      return document.querySelector('input[name="vista"]:checked').value;
+    }
+
+    // Pone un marcador por hospedaje y llena el directorio de al lado
+    function dibujarMapa() {
+      if (vistaElegida() !== 'mapa') {
+        return;
+      }
+      if (mapa === null) {
+        mapa = crearMapa('mapaGeneral', 15);
+        capaMarcadores = L.layerGroup().addTo(mapa);
+      }
+      mapa.invalidateSize();   // por si el mapa estaba escondido al crearlo
+
+      capaMarcadores.clearLayers();
+      marcadores = {};
+      let directorio = '';
+      const puntos = [];
+
+      for (const h of encontrados) {
+        const marcador = L.marker([h.latitud, h.longitud], { icon: iconoMarcador(h.icono), title: h.nombre })
+          .bindPopup(ventanaMarcador(h))
+          .addTo(capaMarcadores);
+        marcadores[h.id] = marcador;
+        puntos.push([h.latitud, h.longitud]);
+
+        let textoPrecio = '';
+        if (h.precio_desde !== null) {
+          textoPrecio = `<span class="small fw-semibold text-nowrap">desde ${precio(h.precio_desde)}</span>`;
+        }
+        directorio += `
+          <button type="button" class="list-group-item list-group-item-action" onclick="mostrarEnMapa(${h.id})">
+            <div class="d-flex justify-content-between gap-2">
+              <span class="fw-semibold">${esc(h.nombre)}</span>
+              ${textoPrecio}
+            </div>
+            <div class="small text-muted"><i class="bi ${esc(h.icono)}"></i> <span>${esc(h.tipo)}</span> · ${esc(h.direccion || h.municipio)}</div>
+          </button>`;
+      }
+
+      if (encontrados.length === 0) {
+        directorio = '<div class="list-group-item text-muted small">No se encontraron hospedajes con esos filtros.</div>';
+      }
+      document.getElementById('directorio').innerHTML = directorio;
+
+      // Acercamos el mapa para que se vean todos los marcadores
+      if (puntos.length > 0) {
+        mapa.fitBounds(puntos, { padding: [40, 40], maxZoom: 17 });
+      }
+    }
+
+    // Al tocar un hospedaje del directorio: lo centramos y abrimos su ventanita
+    function mostrarEnMapa(id) {
+      const marcador = marcadores[id];
+      if (!marcador) {
+        return;
+      }
+      mapa.setView(marcador.getLatLng(), 17);
+      marcador.openPopup();
+    }
+
+    // Muestra la lista de tarjetas o el mapa
+    function cambiarVista() {
+      const enMapa = vistaElegida() === 'mapa';
+      document.getElementById('resultados').classList.toggle('d-none', enMapa);
+      document.getElementById('cajaMapa').classList.toggle('d-none', !enMapa);
+      guardarDireccion();
+      dibujarMapa();
+    }
+
+    // Guardamos los filtros y la vista en la dirección de la página (para poder compartirla)
+    let filtrosActuales = '';
+    function guardarDireccion() {
+      const direccion = new URLSearchParams(filtrosActuales);
+      if (vistaElegida() === 'mapa') {
+        direccion.set('vista', 'mapa');
+      }
+      history.replaceState(null, '', '?' + direccion.toString());
+    }
+
+    for (const opcion of document.querySelectorAll('input[name="vista"]')) {
+      opcion.addEventListener('change', cambiarVista);
+    }
+
+    // Mostrar el botón "Agregar hospedaje" a quien tenga el permiso de registrar
+    if (tienePermiso(usuarioActual(), 'registrar')) {
       document.getElementById('btnNuevo').classList.remove('d-none');
     }
 
@@ -124,8 +255,16 @@
         filtros.set('servicios', marcados.join(','));
       }
 
-      // Guardamos los filtros en la dirección de la página (para poder compartirla)
-      history.replaceState(null, '', '?' + filtros.toString());
+      // Cuántos filtros de "Más filtros" están puestos (se muestra en el botón)
+      let extra = marcados.length;
+      if (filtros.has('departamento')) extra++;
+      if (filtros.has('municipio')) extra++;
+      const contadorFiltros = document.getElementById('contadorFiltros');
+      contadorFiltros.textContent = extra;
+      contadorFiltros.classList.toggle('d-none', extra === 0);
+
+      filtrosActuales = filtros.toString();
+      guardarDireccion();
 
       const contenedor = document.getElementById('resultados');
       try {
@@ -134,6 +273,9 @@
         let texto = hospedajes.length + ' hospedajes encontrados';
         if (hospedajes.length === 1) texto = '1 hospedaje encontrado';
         document.getElementById('contador').textContent = texto;
+
+        encontrados = hospedajes;
+        dibujarMapa();
 
         if (hospedajes.length === 0) {
           contenedor.innerHTML = '<div class="col-12"><div class="alert alert-light border">No se encontraron hospedajes con esos filtros.</div></div>';
@@ -193,6 +335,18 @@
         document.getElementById('municipio').value = parametro('municipio');
       }
 
+      // Si la dirección trae filtros extra, abrimos "Más filtros" para que se vean
+      if (parametro('departamento') || parametro('municipio') || parametro('servicios')) {
+        document.getElementById('masFiltros').classList.add('show');
+      }
+
+      // hospedajes.html?vista=mapa abre directo el mapa
+      if (parametro('vista') === 'mapa') {
+        document.getElementById('vistaMapa').checked = true;
+        document.getElementById('resultados').classList.add('d-none');
+        document.getElementById('cajaMapa').classList.remove('d-none');
+      }
+
       buscar();
     }
 
@@ -206,6 +360,9 @@
       clearTimeout(espera);
       espera = setTimeout(buscar, 300);
     });
+
+    // "Ordenar" está fuera del formulario (junto a Lista | Mapa): lo escuchamos aparte
+    document.getElementById('orden').addEventListener('change', buscar);
 
     // Que la tecla Enter no recargue la página
     document.getElementById('filtros').addEventListener('submit', function (evento) {

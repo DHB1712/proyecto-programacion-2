@@ -29,7 +29,7 @@ router.get('/', async function (req, res, next) {
        FROM favoritos f
        JOIN hospedajes h ON h.id = f.hospedaje_id
        JOIN tipos_hospedaje t ON t.id = h.tipo_id
-       WHERE f.usuario_id = $1 AND h.estado = 'activo' AND h.revision = 'aprobado'
+       WHERE f.usuario_id = $1 AND h.estado = 'activo' AND h.revision = 'aprobado' AND t.activo
        ORDER BY f.creado_en DESC`,
       [req.usuario.id]
     );
@@ -57,7 +57,9 @@ router.post('/:id', async function (req, res, next) {
 
     // Revisamos que el hospedaje exista y esté publicado
     const existe = await pool.query(
-      "SELECT id FROM hospedajes WHERE id = $1 AND estado = 'activo' AND revision = 'aprobado'", [id || 0]
+      `SELECT h.id FROM hospedajes h
+       JOIN tipos_hospedaje t ON t.id = h.tipo_id
+       WHERE h.id = $1 AND h.estado = 'activo' AND h.revision = 'aprobado' AND t.activo`, [id || 0]
     );
     if (existe.rowCount === 0) {
       return res.status(404).json({ error: 'Hospedaje no encontrado.' });

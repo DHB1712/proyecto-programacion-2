@@ -15,6 +15,19 @@ const { leerUsuario } = require('./src/auth');
 
 const app = express();
 
+// En Render las peticiones pasan por un proxy: así req.ip es la IP real del visitante
+// (se usa para limitar los intentos de inicio de sesión)
+app.set('trust proxy', 1);
+
+// #SEGURIDAD - Encabezados básicos de seguridad en todas las respuestas
+app.disable('x-powered-by');   // no decimos que usamos Express
+app.use(function (req, res, next) {
+  res.set('X-Content-Type-Options', 'nosniff');            // el navegador no adivina tipos de archivo
+  res.set('X-Frame-Options', 'SAMEORIGIN');                // otras páginas no nos pueden meter en un iframe
+  res.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // Para poder recibir datos en formato JSON desde las páginas
 app.use(express.json());
 

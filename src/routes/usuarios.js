@@ -6,21 +6,38 @@
 //   GET   /api/auth/yo         -> ver mis datos
 //   PUT   /api/auth/yo         -> cambiar mi nombre y correo
 //   PUT   /api/auth/password   -> cambiar mi contraseña
-//   GET   /api/usuarios        -> lista de usuarios (admin)
-//   POST  /api/usuarios        -> crear usuario (admin)
-//   PATCH /api/usuarios/5      -> cambiar rol o activar/desactivar (admin)
+//   GET   /api/usuarios        -> lista de usuarios (permiso "usuarios")
+//   POST  /api/usuarios        -> crear usuario (permiso "usuarios")
+//   PATCH /api/usuarios/5      -> cambiar rol, permisos o activar/desactivar (permiso "usuarios")
+//   GET   /api/roles           -> roles con sus permisos (permiso "usuarios")
+//   PUT   /api/roles/registrador -> cambiar los permisos del rol registrador (permiso "usuarios")
 //
 // Las contraseñas NO se guardan tal cual: se guardan cifradas con bcrypt.
 // ==========================================================
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const pool = require('../db');
-const { crearToken, requiereSesion, requiereAdmin } = require('../auth');
+const { crearToken, requiereSesion, requierePermiso } = require('../auth');
+const { PERMISOS, limpiarPermisos, permisosDe } = require('../permisos');
 
 const router = express.Router();
 
+// Usuarios y roles solo los maneja quien tiene el permiso "usuarios" (el administrador)
+const requiereUsuarios = requierePermiso('usuarios');
+
+// #PERMISOS_EFECTIVOS - Permisos que de verdad tiene una cuenta (según su rol y sus ajustes)
+async function permisosDeUsuario(usuario) {
+  const rol = await pool.query('SELECT permisos FROM roles WHERE slug = $1', [usuario.rol]);
+  let permisosRol = null;
+  if (rol.rows.length > 0) {
+    permisosRol = rol.rows[0].permisos;
+  }
+  return permisosDe(usuario.rol, usuario.permisos, permisosRol);
+}
+
 // Lo que recibe el navegador al iniciar sesión: el token y los datos del usuario
-function datosDeSesion(usuario) {
+// (los permisos sirven para mostrar solo los botones que puede usar)
+async function datosDeSesion(usuario) {
   return {
     token: crearToken(usuario),
     usuario: {
@@ -29,6 +46,7 @@ function datosDeSesion(usuario) {
       usuario: usuario.usuario,
       correo: usuario.correo,
       rol: usuario.rol,
+      permisos: await permisosDeUsuario(usuario),
     },
   };
 }
@@ -51,6 +69,42 @@ function validarCuenta(nombre, usuario, correo, password) {
   return null;
 }
 
+// 23505 = valor repetido. Según la restricción sabemos si fue el usuario o el correo.
+function mensajeRepetido(error) {
+  if (error.constraint === 'usuarios_correo_key') {
+    return 'Ese correo ya está registrado en otra cuenta.';
+  }
+  return 'Ese nombre de usuario ya está en uso. Elija otro.';
+}
+
+// #LIMITE_INTENTOS - Para que nadie pruebe contraseñas sin parar:
+// después de 10 intentos fallidos desde la misma IP hay que esperar 15 minutos.
+// Se guarda en memoria (se reinicia si se reinicia el servidor).
+const MAX_INTENTOS = 10;
+const ESPERA_MS = 15 * 60 * 1000;
+const intentosFallidos = new Map();   // ip -> { cantidad, desde }
+
+function estaBloqueado(ip) {
+  const registro = intentosFallidos.get(ip);
+  if (!registro) {
+    return false;
+  }
+  if (Date.now() - registro.desde > ESPERA_MS) {
+    intentosFallidos.delete(ip);   // ya pasó el tiempo de espera
+    return false;
+  }
+  return registro.cantidad >= MAX_INTENTOS;
+}
+
+function anotarFallo(ip) {
+  const registro = intentosFallidos.get(ip);
+  if (registro && Date.now() - registro.desde <= ESPERA_MS) {
+    registro.cantidad++;
+  } else {
+    intentosFallidos.set(ip, { cantidad: 1, desde: Date.now() });
+  }
+}
+
 // ==========================================================
 // SESIÓN
 // ==========================================================
@@ -58,6 +112,10 @@ function validarCuenta(nombre, usuario, correo, password) {
 // #INICIO_SESION - Iniciar sesión (revisa usuario y contraseña y devuelve el token)
 router.post('/auth/login', async function (req, res, next) {
   try {
+    if (estaBloqueado(req.ip)) {
+      return res.status(429).json({ error: 'Demasiados intentos fallidos. Espere 15 minutos e intente de nuevo.' });
+    }
+
     const usuarioOCorreo = String(req.body.usuario || '').trim().toLowerCase();
     const password = String(req.body.password || '');
 
@@ -70,13 +128,15 @@ router.post('/auth/login', async function (req, res, next) {
 
     // #CONTRASENA_CIFRADA - Comparamos la contraseña escrita con la cifrada que está en la base
     if (!usuario || !(await bcrypt.compare(password, usuario.password_hash))) {
+      anotarFallo(req.ip);
       return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
     }
+    intentosFallidos.delete(req.ip);   // entró bien: borramos sus fallos
     if (!usuario.activo) {
       return res.status(403).json({ error: 'Su cuenta está desactivada. Comuníquese con el administrador.' });
     }
 
-    res.json(datosDeSesion(usuario));
+    res.json(await datosDeSesion(usuario));
   } catch (error) {
     next(error);
   }
@@ -106,11 +166,11 @@ router.post('/auth/registro', async function (req, res, next) {
     );
 
     // Lo dejamos con la sesión iniciada de una vez
-    res.status(201).json(datosDeSesion(resultado.rows[0]));
+    res.status(201).json(await datosDeSesion(resultado.rows[0]));
   } catch (error) {
-    // 23505 = valor repetido: ese usuario ya existe
+    // 23505 = valor repetido: ese usuario o correo ya existe
     if (error.code === '23505') {
-      return res.status(409).json({ error: 'Ese nombre de usuario ya está en uso. Elija otro.' });
+      return res.status(409).json({ error: mensajeRepetido(error) });
     }
     next(error);
   }
@@ -126,7 +186,8 @@ router.get('/auth/yo', requiereSesion, async function (req, res, next) {
        FROM usuarios WHERE id = $1`,
       [req.usuario.id]
     );
-    res.json(resultado.rows[0]);
+    // Con los permisos actuales, para que las páginas muestren los botones correctos
+    res.json(Object.assign(resultado.rows[0], { permisos: req.usuario.permisos }));
   } catch (error) {
     next(error);
   }
@@ -150,8 +211,11 @@ router.put('/auth/yo', requiereSesion, async function (req, res, next) {
       [nombre, correo, req.usuario.id]
     );
     // Devolvemos un token nuevo porque el nombre cambió
-    res.json(datosDeSesion(resultado.rows[0]));
+    res.json(await datosDeSesion(resultado.rows[0]));
   } catch (error) {
+    if (error.code === '23505') {
+      return res.status(409).json({ error: mensajeRepetido(error) });
+    }
     next(error);
   }
 });
@@ -181,26 +245,36 @@ router.put('/auth/password', requiereSesion, async function (req, res, next) {
 
 // ==========================================================
 // #ADMIN_USUARIOS
-// ADMINISTRACIÓN DE USUARIOS (solo admin)
+// ADMINISTRACIÓN DE USUARIOS (permiso "usuarios": el administrador)
 // ==========================================================
 
-// Lista de usuarios: primero admins, luego registradores y al final clientes
-router.get('/usuarios', requiereAdmin, async function (req, res, next) {
+// Lista de usuarios: primero admins, luego registradores y al final clientes.
+// "ajustados" = la cuenta tiene permisos propios distintos a los de su rol.
+router.get('/usuarios', requiereUsuarios, async function (req, res, next) {
   try {
     const resultado = await pool.query(
-      `SELECT u.id, u.nombre, u.usuario, u.correo, u.rol, u.activo,
+      `SELECT u.id, u.nombre, u.usuario, u.correo, u.rol, u.activo, u.permisos, u.es_principal, r.permisos AS permisos_rol,
               (SELECT COUNT(*)::int FROM hospedajes h WHERE h.creado_por = u.id) AS registros
-       FROM usuarios u
-       ORDER BY CASE u.rol WHEN 'admin' THEN 0 WHEN 'registrador' THEN 1 ELSE 2 END, u.usuario`
+       FROM usuarios u LEFT JOIN roles r ON r.slug = u.rol
+       ORDER BY u.es_principal DESC, CASE u.rol WHEN 'admin' THEN 0 WHEN 'registrador' THEN 1 ELSE 2 END, u.usuario`
     );
-    res.json(resultado.rows);
+    const usuarios = resultado.rows.map(function (u) {
+      return {
+        id: u.id, nombre: u.nombre, usuario: u.usuario, correo: u.correo, rol: u.rol, activo: u.activo,
+        registros: u.registros,
+        es_principal: u.es_principal,
+        permisos: permisosDe(u.rol, u.permisos, u.permisos_rol),
+        ajustados: u.rol === 'registrador' && Array.isArray(u.permisos),
+      };
+    });
+    res.json(usuarios);
   } catch (error) {
     next(error);
   }
 });
 
 // Crear un usuario con el rol que elija el admin
-router.post('/usuarios', requiereAdmin, async function (req, res, next) {
+router.post('/usuarios', requiereUsuarios, async function (req, res, next) {
   try {
     const nombre = String(req.body.nombre || '').trim();
     const usuario = String(req.body.usuario || '').trim().toLowerCase();
@@ -226,20 +300,27 @@ router.post('/usuarios', requiereAdmin, async function (req, res, next) {
     res.status(201).json({ id: resultado.rows[0].id });
   } catch (error) {
     if (error.code === '23505') {
-      return res.status(409).json({ error: 'Ese nombre de usuario ya existe.' });
+      return res.status(409).json({ error: mensajeRepetido(error) });
     }
     next(error);
   }
 });
 
-// #ROLES - Cambiar el rol o activar/desactivar un usuario
-router.patch('/usuarios/:id', requiereAdmin, async function (req, res, next) {
+// #ROLES - Cambiar el rol, los permisos o activar/desactivar un usuario
+router.patch('/usuarios/:id', requiereUsuarios, async function (req, res, next) {
   try {
     const id = Number(req.params.id) || 0;
 
-    // El admin no se puede quitar el rol ni desactivar a sí mismo
+    // El admin no se puede quitar el rol, los permisos ni desactivar a sí mismo
     if (id === req.usuario.id) {
       return res.status(400).json({ error: 'No puede cambiar su propio usuario desde aquí.' });
+    }
+
+    // #ADMIN_PRINCIPAL - Al administrador principal nadie le puede cambiar el rol, los permisos ni desactivarlo
+    // (la base de datos también lo impide con el trigger proteger_admin_principal)
+    const objetivo = await pool.query('SELECT es_principal FROM usuarios WHERE id = $1', [id]);
+    if (objetivo.rowCount > 0 && objetivo.rows[0].es_principal) {
+      return res.status(403).json({ error: 'El administrador principal no se puede modificar: siempre es administrador con acceso total.' });
     }
 
     let resultado;
@@ -248,7 +329,24 @@ router.patch('/usuarios/:id', requiereAdmin, async function (req, res, next) {
       if (rol !== 'admin' && rol !== 'registrador' && rol !== 'cliente') {
         return res.status(400).json({ error: 'Rol no válido.' });
       }
-      resultado = await pool.query('UPDATE usuarios SET rol = $1 WHERE id = $2', [rol, id]);
+      // Al cambiar de rol, la cuenta vuelve a los permisos normales de su nuevo rol
+      resultado = await pool.query('UPDATE usuarios SET rol = $1, permisos = NULL WHERE id = $2', [rol, id]);
+    } else if (req.body.permisos !== undefined) {
+      // #ROLES - Permisos de una cuenta: solo se ajustan a registradores
+      // (el administrador siempre tiene todos y el cliente ninguno).
+      // permisos: null -> vuelve a los permisos de su rol
+      const cuenta = await pool.query('SELECT rol FROM usuarios WHERE id = $1', [id]);
+      if (cuenta.rowCount === 0) {
+        return res.status(404).json({ error: 'Usuario no encontrado.' });
+      }
+      if (cuenta.rows[0].rol !== 'registrador') {
+        return res.status(400).json({ error: 'Solo se pueden ajustar los permisos de un registrador.' });
+      }
+      let permisos = null;
+      if (req.body.permisos !== null) {
+        permisos = limpiarPermisos(req.body.permisos);
+      }
+      resultado = await pool.query('UPDATE usuarios SET permisos = $1 WHERE id = $2', [permisos, id]);
     } else if (typeof req.body.activo === 'boolean') {
       resultado = await pool.query('UPDATE usuarios SET activo = $1 WHERE id = $2', [req.body.activo, id]);
     } else {
@@ -259,6 +357,47 @@ router.patch('/usuarios/:id', requiereAdmin, async function (req, res, next) {
       return res.status(404).json({ error: 'Usuario no encontrado.' });
     }
     res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==========================================================
+// #ROLES
+// ROLES Y SUS PERMISOS (permiso "usuarios": el administrador)
+// ==========================================================
+
+// Lista de permisos que existen y los roles con sus permisos y cuántas cuentas tienen
+router.get('/roles', requiereUsuarios, async function (req, res, next) {
+  try {
+    const resultado = await pool.query(
+      `SELECT r.slug, r.nombre, r.descripcion, r.permisos,
+              (SELECT COUNT(*)::int FROM usuarios u WHERE u.rol = r.slug) AS cuentas
+       FROM roles r
+       ORDER BY CASE r.slug WHEN 'admin' THEN 0 WHEN 'registrador' THEN 1 ELSE 2 END`
+    );
+    const roles = resultado.rows.map(function (r) {
+      return {
+        slug: r.slug, nombre: r.nombre, descripcion: r.descripcion, cuentas: r.cuentas,
+        permisos: permisosDe(r.slug, null, r.permisos),
+        editable: r.slug === 'registrador',   // admin = todo y cliente = nada: no se cambian
+      };
+    });
+    res.json({ permisos: PERMISOS, roles: roles });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Cambiar los permisos del rol registrador (aplica a todos los registradores sin ajustes propios)
+router.put('/roles/:slug', requiereUsuarios, async function (req, res, next) {
+  try {
+    if (req.params.slug !== 'registrador') {
+      return res.status(400).json({ error: 'Solo se pueden cambiar los permisos del rol Registrador.' });
+    }
+    const permisos = limpiarPermisos(req.body.permisos);
+    await pool.query('UPDATE roles SET permisos = $1 WHERE slug = $2', [permisos, 'registrador']);
+    res.json({ ok: true, permisos: permisos });
   } catch (error) {
     next(error);
   }

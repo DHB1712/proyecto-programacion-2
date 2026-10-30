@@ -1,10 +1,11 @@
 <!doctype html>
 <!--
   #PAGINA_ADMIN
-  PANEL DE ADMINISTRACIÓN (solo administrador)
+  PANEL DE ADMINISTRACIÓN
   - Resumen de los registros.
-  - Tipos de hospedaje: crear y editar.
-  - Usuarios: crear, cambiar rol y activar/desactivar.
+  - Tipos de hospedaje: crear y editar (permiso "tipos").
+  - Usuarios: crear, cambiar rol, permisos y activar/desactivar (permiso "usuarios").
+  - Roles: qué puede hacer cada rol (permiso "usuarios").   #ROLES
 -->
 <html lang="es">
 <head>
@@ -23,18 +24,19 @@
     <div id="mensaje"></div>
 
     <!-- Tarjetas con los números del resumen -->
-    <div class="row g-3 mb-4" id="resumen"></div>
+    <div class="row g-3 mb-4 row-cols-xl-5" id="resumen"></div>
 
-    <!-- Pestañas -->
-    <ul class="nav nav-tabs">
-      <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabTipos" type="button">Tipos de hospedaje</button></li>
-      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUsuarios" type="button">Usuarios</button></li>
+    <!-- Pestañas: cada una aparece solo si la cuenta tiene el permiso -->
+    <ul class="nav nav-tabs" id="pestanas">
+      <li class="nav-item d-none" id="pestanaTipos"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabTipos" type="button">Tipos de hospedaje</button></li>
+      <li class="nav-item d-none" id="pestanaUsuarios"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabUsuarios" type="button">Usuarios</button></li>
+      <li class="nav-item d-none" id="pestanaRoles"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabRoles" type="button"><i class="bi bi-shield-lock"></i> Roles</button></li>
     </ul>
 
     <div class="tab-content card card-body border-top-0 rounded-top-0 shadow-sm">
 
       <!-- ===== Pestaña: Tipos de hospedaje ===== -->
-      <div class="tab-pane fade show active" id="tabTipos">
+      <div class="tab-pane fade" id="tabTipos">
         <div class="table-responsive">
           <table class="table align-middle">
             <thead><tr><th>Nombre</th><th>Identificador</th><th>Icono</th><th>Aprobados</th><th>Activo</th><th></th></tr></thead>
@@ -64,7 +66,7 @@
       <div class="tab-pane fade" id="tabUsuarios">
         <div class="table-responsive">
           <table class="table align-middle">
-            <thead><tr><th>Usuario</th><th>Nombre</th><th class="d-none d-md-table-cell">Correo</th><th>Rol</th><th>Registros</th><th>Activo</th></tr></thead>
+            <thead><tr><th>Usuario</th><th>Nombre</th><th class="d-none d-md-table-cell">Correo</th><th>Rol</th><th>Permisos</th><th>Registros</th><th>Activo</th></tr></thead>
             <tbody id="tablaUsuarios"></tbody>
           </table>
         </div>
@@ -86,28 +88,62 @@
           <div class="col-12 text-end"><button class="btn btn-primary">Crear usuario</button></div>
         </form>
       </div>
+
+      <!-- ===== Pestaña: Roles ===== -->
+      <div class="tab-pane fade" id="tabRoles">
+        <p class="text-muted small mb-3">
+          Qué puede hacer cada rol. El <b>administrador</b> siempre tiene acceso total y el <b>cliente</b> solo consulta y guarda favoritos.
+          Los permisos del <b>registrador</b> los decides tú; además, en la pestaña Usuarios puedes ajustar los de una cuenta en particular.
+        </p>
+        <div class="row g-3" id="listaRoles"></div>
+      </div>
     </div>
   </main>
+
+  <!-- Ventana para ajustar los permisos de una cuenta de registrador -->
+  <div class="modal fade" id="ventanaPermisos" tabindex="-1">
+    <div class="modal-dialog">
+      <form class="modal-content" id="formPermisos">
+        <div class="modal-header">
+          <h2 class="modal-title h5" id="tituloPermisos">Permisos</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted" id="avisoPermisos"></p>
+          <div id="casillasCuenta"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary me-auto" id="btnPermisosDelRol">Usar los del rol</button>
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Guardar permisos</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <footer class="py-3 text-center small">Proyecto Programación 2 · Grupo 4 · Hoteles y hospedajes</footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="js/comun.js"></script>
   <script>
-    // Solo el administrador puede entrar
-    const usuario = exigirSesion(['admin']);
+    // Entra quien administra usuarios o tipos de hospedaje (#PERMISOS)
+    const usuario = exigirPermiso(['usuarios', 'tipos']);
     pintarMenu('admin');
 
     const mensaje = document.getElementById('mensaje');
     let tipos = [];               // lista de tipos cargada
     let idTipoEditando = null;    // null = creando uno nuevo
+    let catalogoPermisos = [];    // lista de permisos que existen (viene del servidor)
+    let usuariosCargados = [];
+    let idCuentaPermisos = null;  // cuenta cuyos permisos se están editando
+    const ventanaPermisos = new bootstrap.Modal(document.getElementById('ventanaPermisos'));
 
     // ==================== RESUMEN ====================
 
     function tarjetaResumen(titulo, numero, enlace, color) {
       return `
-        <div class="col-6 col-md-3">
-          <a href="${enlace}" class="card card-body shadow-sm text-decoration-none tarjeta-categoria">
+        <div class="col-6 col-md-4 col-xl">
+          <a href="${enlace}" class="card card-body shadow-sm text-decoration-none tarjeta-categoria h-100">
             <div class="small text-muted">${titulo}</div>
             <div class="fs-3 fw-bold text-${color}">${numero}</div>
           </a>
@@ -120,14 +156,17 @@
       let pendientes = 0;
       let aprobados = 0;
       let inactivos = 0;
+      let eliminaciones = 0;
       for (const h of todos) {
         if (h.revision === 'pendiente') pendientes++;
         if (h.revision === 'aprobado') aprobados++;
         if (h.estado === 'inactivo') inactivos++;
+        if (h.eliminacion_solicitada) eliminaciones++;
       }
 
       document.getElementById('resumen').innerHTML =
         tarjetaResumen('Total de registros', todos.length, 'mis-registros.html', 'dark') +
+        tarjetaResumen('Eliminaciones por aprobar', eliminaciones, 'mis-registros.html?eliminacion=1', 'danger') +
         tarjetaResumen('Pendientes de revisión', pendientes, 'mis-registros.html?revision=pendiente', 'warning') +
         tarjetaResumen('Aprobados', aprobados, 'mis-registros.html?revision=aprobado', 'success') +
         tarjetaResumen('Inactivos', inactivos, 'mis-registros.html?estado=inactivo', 'secondary');
@@ -204,16 +243,93 @@
       }
     });
 
+    // ==================== PERMISOS (casillas) ====================   #PERMISOS
+
+    // Dibuja una casilla por cada permiso. "marcados" = los que tiene; "bloqueado" = solo para ver.
+    function casillasPermisos(prefijo, marcados, bloqueado) {
+      let html = '';
+      for (const p of catalogoPermisos) {
+        const marcado = marcados.includes(p.clave) ? 'checked' : '';
+        // "Administrar usuarios y roles" es solo del administrador: no se le puede dar a otros
+        const desactivado = bloqueado || p.soloAdmin ? 'disabled' : '';
+        const nota = p.soloAdmin && !bloqueado ? ' <span class="badge text-bg-light border">solo administrador</span>' : '';
+        html += `
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="${prefijo}" value="${p.clave}" id="${prefijo}-${p.clave}" ${marcado} ${desactivado}>
+            <label class="form-check-label" for="${prefijo}-${p.clave}">
+              <span class="fw-semibold">${esc(p.nombre)}</span>${nota}
+              <span class="d-block small text-muted">${esc(p.descripcion)}</span>
+            </label>
+          </div>`;
+      }
+      return html;
+    }
+
+    // Lee las casillas marcadas
+    function permisosMarcados(prefijo) {
+      const lista = [];
+      for (const casilla of document.querySelectorAll(`input[name="${prefijo}"]:checked`)) {
+        if (!casilla.disabled) lista.push(casilla.value);
+      }
+      return lista;
+    }
+
+    // ==================== ROLES ====================   #ROLES
+
+    async function cargarRoles() {
+      const datos = await api('/roles');
+      catalogoPermisos = datos.permisos;
+
+      let html = '';
+      for (const rol of datos.roles) {
+        let pie = '';
+        if (rol.editable) {
+          pie = `<button class="btn btn-primary btn-sm mt-2" onclick="guardarRol('${rol.slug}')"><i class="bi bi-save"></i> Guardar permisos del rol</button>`;
+        } else {
+          pie = '<p class="small text-muted mt-2 mb-0"><i class="bi bi-lock"></i> Este rol no se puede cambiar.</p>';
+        }
+        const cuentas = rol.cuentas === 1 ? '1 cuenta' : rol.cuentas + ' cuentas';
+
+        html += `
+          <div class="col-lg-4">
+            <div class="card h-100 p-3">
+              <div class="d-flex justify-content-between align-items-start mb-1">
+                <h3 class="h5 mb-0">${esc(rol.nombre)}</h3>
+                <span class="badge text-bg-light border">${cuentas}</span>
+              </div>
+              <p class="small text-muted">${esc(rol.descripcion)}</p>
+              ${casillasPermisos('rol-' + rol.slug, rol.permisos, !rol.editable)}
+              ${pie}
+            </div>
+          </div>`;
+      }
+      document.getElementById('listaRoles').innerHTML = html;
+    }
+
+    async function guardarRol(slug) {
+      try {
+        await api('/roles/' + slug, { method: 'PUT', body: { permisos: permisosMarcados('rol-' + slug) } });
+        alerta(mensaje, 'Permisos del rol guardados. Aplican de inmediato a los registradores que no tienen permisos propios.', 'success');
+        await cargarRoles();
+        await cargarUsuarios();
+      } catch (error) {
+        alerta(mensaje, esc(error.message));
+      }
+      window.scrollTo(0, 0);
+    }
+
     // ==================== USUARIOS ====================   #ADMIN_USUARIOS  #ROLES
 
     async function cargarUsuarios() {
-      const usuarios = await api('/usuarios');
+      usuariosCargados = await api('/usuarios');
 
       let filas = '';
-      for (const u of usuarios) {
-        // El rol se puede cambiar con una lista, menos el de uno mismo
+      for (const u of usuariosCargados) {
+        // El rol se puede cambiar con una lista, menos el de uno mismo y el del administrador principal
         let rol = NOMBRE_ROL[u.rol];
-        if (u.id !== usuario.id) {
+        if (u.es_principal) {
+          rol = '<span class="badge text-bg-warning" title="Nadie le puede quitar el rol ni desactivarlo"><i class="bi bi-shield-lock-fill"></i> Administrador principal</span>';
+        } else if (u.id !== usuario.id) {
           rol = `<select class="form-select form-select-sm" onchange="cambiarRol(${u.id}, this.value)" aria-label="Rol">`;
           for (const clave of ['admin', 'registrador', 'cliente']) {
             const elegido = clave === u.rol ? 'selected' : '';
@@ -222,9 +338,21 @@
           rol += '</select>';
         }
 
+        // Permisos: el admin tiene todos, el cliente ninguno; al registrador se le ajustan
+        let permisos = '<span class="small text-muted">—</span>';
+        if (u.rol === 'admin') {
+          permisos = '<span class="badge text-bg-success">Acceso total</span>';
+        } else if (u.rol === 'registrador') {
+          const etiqueta = u.ajustados
+            ? '<span class="badge text-bg-warning ms-1" title="Tiene permisos distintos a los del rol">Ajustados</span>'
+            : '';
+          permisos = `<button class="btn btn-sm btn-outline-secondary text-nowrap" onclick="abrirPermisos(${u.id})">
+                        <i class="bi bi-sliders"></i> ${u.permisos.length} permisos</button>${etiqueta}`;
+        }
+
         // Interruptor para activar o desactivar
         const marcado = u.activo ? 'checked' : '';
-        const bloqueado = u.id === usuario.id ? 'disabled' : '';
+        const bloqueado = u.id === usuario.id || u.es_principal ? 'disabled' : '';
 
         filas += `
           <tr>
@@ -232,6 +360,7 @@
             <td>${esc(u.nombre)}</td>
             <td class="d-none d-md-table-cell small">${esc(u.correo || '—')}</td>
             <td>${rol}</td>
+            <td>${permisos}</td>
             <td>${u.registros}</td>
             <td>
               <div class="form-check form-switch">
@@ -244,10 +373,45 @@
       document.getElementById('tablaUsuarios').innerHTML = filas;
     }
 
+    // Abre la ventana de permisos de una cuenta de registrador
+    function abrirPermisos(id) {
+      const cuenta = usuariosCargados.find(function (u) { return u.id === id; });
+      idCuentaPermisos = id;
+      document.getElementById('tituloPermisos').textContent = 'Permisos de ' + cuenta.nombre;
+      document.getElementById('avisoPermisos').textContent = cuenta.ajustados
+        ? 'Esta cuenta tiene permisos propios, distintos a los del rol Registrador.'
+        : 'Esta cuenta usa los permisos del rol Registrador. Si los cambias aquí, solo aplican a esta cuenta.';
+      document.getElementById('casillasCuenta').innerHTML = casillasPermisos('cuenta', cuenta.permisos, false);
+      ventanaPermisos.show();
+    }
+
+    async function guardarPermisosCuenta(permisos, texto) {
+      try {
+        await api('/usuarios/' + idCuentaPermisos, { method: 'PATCH', body: { permisos: permisos } });
+        ventanaPermisos.hide();
+        alerta(mensaje, texto, 'success');
+        await cargarUsuarios();
+      } catch (error) {
+        alerta(mensaje, esc(error.message));
+      }
+    }
+
+    document.getElementById('formPermisos').addEventListener('submit', function (evento) {
+      evento.preventDefault();
+      guardarPermisosCuenta(permisosMarcados('cuenta'), 'Permisos de la cuenta guardados. Aplican de inmediato.');
+    });
+
+    // "Usar los del rol": la cuenta deja de tener permisos propios
+    document.getElementById('btnPermisosDelRol').addEventListener('click', function () {
+      guardarPermisosCuenta(null, 'La cuenta vuelve a usar los permisos del rol Registrador.');
+    });
+
     async function cambiarRol(id, rol) {
       try {
         await api('/usuarios/' + id, { method: 'PATCH', body: { rol: rol } });
         alerta(mensaje, 'Rol actualizado. Los permisos cambian de inmediato.', 'success');
+        await cargarUsuarios();
+        await cargarRoles();
       } catch (error) {
         alerta(mensaje, esc(error.message));
         cargarUsuarios();
@@ -276,17 +440,45 @@
         await api('/usuarios', { method: 'POST', body: datos });
         alerta(mensaje, 'Usuario creado.', 'success');
         document.getElementById('formUsuario').reset();
-        cargarUsuarios();
+        await cargarUsuarios();
+        await cargarRoles();
       } catch (error) {
         alerta(mensaje, esc(error.message));
       }
     });
 
     // ==================== AL ABRIR LA PÁGINA ====================
+
+    // Muestra una pestaña y la deja elegida si es la primera visible
+    function mostrarPestana(idPestana) {
+      const pestana = document.getElementById(idPestana);
+      pestana.classList.remove('d-none');
+      if (!document.querySelector('#pestanas .nav-link.active')) {
+        bootstrap.Tab.getOrCreateInstance(pestana.querySelector('button')).show();
+      }
+    }
+
     async function iniciar() {
+      const yo = await refrescarSesion();
       await cargarResumen();
-      await cargarTipos();
-      await cargarUsuarios();
+
+      if (tienePermiso(yo, 'tipos')) {
+        mostrarPestana('pestanaTipos');
+        await cargarTipos();
+      }
+      if (tienePermiso(yo, 'usuarios')) {
+        mostrarPestana('pestanaUsuarios');
+        mostrarPestana('pestanaRoles');
+        await cargarRoles();      // primero: trae la lista de permisos
+        await cargarUsuarios();
+      }
+
+      // admin.html?pestana=roles abre directo esa pestaña
+      const pedida = parametro('pestana');
+      if (pedida === 'roles' || pedida === 'usuarios' || pedida === 'tipos') {
+        const boton = document.querySelector(`#pestana${pedida.charAt(0).toUpperCase() + pedida.slice(1)}:not(.d-none) button`);
+        if (boton) bootstrap.Tab.getOrCreateInstance(boton).show();
+      }
     }
 
     if (usuario) {

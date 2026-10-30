@@ -25,7 +25,7 @@
         <h1 class="h3 mb-0" id="titulo">Mis registros</h1>
         <p class="text-muted small mb-0" id="subtitulo"></p>
       </div>
-      <a class="btn btn-primary" href="registro.html"><i class="bi bi-plus-lg"></i> Registrar hospedaje</a>
+      <a class="btn btn-primary d-none" href="registro.html" id="btnNuevo"><i class="bi bi-plus-lg"></i> Registrar hospedaje</a>
     </div>
     <div id="mensaje"></div>
 
@@ -50,6 +50,12 @@
           <option value="">Todo estado</option>
           <option value="activo">Activos</option>
           <option value="inactivo">Inactivos</option>
+        </select>
+      </div>
+      <div class="col-12 col-md-1">
+        <select class="form-select" id="eliminacion" aria-label="Solicitudes de eliminación" title="Solicitudes de eliminación">
+          <option value="">Todos</option>
+          <option value="1">Eliminación pedida</option>
         </select>
       </div>
     </form>
@@ -101,30 +107,41 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="js/comun.js"></script>
   <script>
-    const usuario = exigirSesion(['admin', 'registrador']);
+    // Entra quien tenga algún permiso de gestión (#PERMISOS)
+    const usuario = exigirPermiso(null);
     pintarMenu('mis');
 
-    const esAdmin = usuario !== null && usuario.rol === 'admin';
     const mensaje = document.getElementById('mensaje');
     const ventanaRechazo = new bootstrap.Modal(document.getElementById('ventanaRechazo'));
     let idParaRechazar = null;
 
-    // Botones de cada fila según los permisos
+    // Botones de cada fila: cada uno aparece solo si la cuenta tiene ese permiso (#PERMISOS)
     function botonesDeAcciones(h) {
+      const yo = usuarioActual();
       let html = `<a class="btn btn-sm btn-outline-secondary" href="hospedaje.html?id=${h.id}" title="Ver"><i class="bi bi-eye"></i></a>`;
 
       if (puedeModificar(h)) {
         html += `<a class="btn btn-sm btn-outline-secondary" href="registro.html?id=${h.id}" title="Editar"><i class="bi bi-pencil"></i></a>`;
+      }
+      // #SOLICITUD_ELIMINACION - Si hay una solicitud pendiente, quien puede eliminar la aprueba o la rechaza
+      if (h.eliminacion_solicitada && puedeEliminar(h)) {
+        html += `<button class="btn btn-sm btn-danger" title="Aprobar eliminación" onclick="decidirEliminacion(${h.id}, 'aprobar', this)" data-nombre="${esc(h.nombre)}"><i class="bi bi-trash-fill"></i></button>`;
+        html += `<button class="btn btn-sm btn-outline-success" title="Rechazar eliminación (se queda)" onclick="decidirEliminacion(${h.id}, 'rechazar', this)"><i class="bi bi-arrow-counterclockwise"></i></button>`;
+      } else if (puedeEliminar(h)) {
         html += `<button class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="eliminar(${h.id}, this)" data-nombre="${esc(h.nombre)}"><i class="bi bi-trash"></i></button>`;
+      } else if (puedeSolicitarEliminar(h)) {
+        html += `<button class="btn btn-sm btn-outline-danger" title="Pedir eliminación" onclick="pedirEliminacion(${h.id}, this)" data-nombre="${esc(h.nombre)}"><i class="bi bi-trash"></i></button>`;
       }
 
-      if (esAdmin) {
+      if (tienePermiso(yo, 'aprobar')) {
         if (h.revision !== 'aprobado') {
           html += `<button class="btn btn-sm btn-success" title="Aprobar" onclick="aprobar(${h.id})"><i class="bi bi-check-lg"></i></button>`;
         }
         if (h.revision !== 'rechazado') {
           html += `<button class="btn btn-sm btn-outline-danger" title="Rechazar" onclick="abrirRechazo(${h.id})"><i class="bi bi-x-lg"></i></button>`;
         }
+      }
+      if (tienePermiso(yo, 'estado')) {
         if (h.estado === 'activo') {
           html += `<button class="btn btn-sm btn-outline-dark" title="Desactivar" onclick="cambiarEstado(${h.id}, 'inactivo')"><i class="bi bi-eye-slash"></i></button>`;
         } else {
@@ -138,7 +155,7 @@
     // Pide la lista a la API y llena la tabla
     async function cargar() {
       const filtros = new URLSearchParams();
-      for (const campo of ['q', 'tipo', 'revision', 'estado']) {
+      for (const campo of ['q', 'tipo', 'revision', 'estado', 'eliminacion']) {
         const valor = document.getElementById(campo).value;
         if (valor !== '') filtros.set(campo, valor);
       }
@@ -157,6 +174,12 @@
           let observacion = '';
           if (h.revision === 'rechazado' && h.observacion) {
             observacion = `<div class="small text-danger">${esc(h.observacion)}</div>`;
+          }
+          // #SOLICITUD_ELIMINACION - Aviso de que alguien pidió eliminarlo
+          if (h.eliminacion_solicitada) {
+            observacion += `
+              <div class="small mt-1"><span class="badge text-bg-danger"><i class="bi bi-trash"></i> Eliminación pedida</span>
+                <span class="text-muted">por ${esc(h.eliminacion_por_nombre || '—')}: ${esc(h.eliminacion_motivo)}</span></div>`;
           }
           let colorEstado = 'text-bg-secondary';
           if (h.estado === 'activo') colorEstado = 'text-bg-primary';
@@ -210,6 +233,30 @@
       }
     }
 
+    // #SOLICITUD_ELIMINACION - El registrador pide eliminar uno suyo
+    async function pedirEliminacion(id, boton) {
+      try {
+        const enviada = await solicitarEliminacion(id, boton.dataset.nombre);
+        if (enviada) cargar();
+      } catch (error) {
+        alerta(mensaje, esc(error.message));
+      }
+    }
+
+    // El administrador aprueba (se borra) o rechaza (se queda) la solicitud
+    async function decidirEliminacion(id, decision, boton) {
+      if (decision === 'aprobar' && !confirm('¿Eliminar "' + boton.dataset.nombre + '"? Esta acción no se puede deshacer.')) {
+        return;
+      }
+      try {
+        await api('/hospedajes/' + id + '/eliminacion', { method: 'PATCH', body: { decision: decision } });
+        alerta(mensaje, decision === 'aprobar' ? 'Hospedaje eliminado.' : 'Solicitud rechazada: el hospedaje se queda.', 'success');
+        cargar();
+      } catch (error) {
+        alerta(mensaje, esc(error.message));
+      }
+    }
+
     // Rechazar: primero se abre la ventana para escribir la observación
     function abrirRechazo(id) {
       idParaRechazar = id;
@@ -244,16 +291,24 @@
 
     // ----- Al abrir la página -----
     async function iniciar() {
-      if (esAdmin) {
+      // Permisos al día (por si el administrador los cambió)
+      const yo = await refrescarSesion();
+
+      if (tienePermiso(yo, 'registrar')) {
+        document.getElementById('btnNuevo').classList.remove('d-none');
+      }
+      if (veTodos(yo)) {
         document.getElementById('titulo').textContent = 'Todos los registros';
-        document.getElementById('subtitulo').textContent = 'Revisa, aprueba, rechaza, edita o desactiva los hospedajes del grupo.';
+        document.getElementById('subtitulo').textContent = 'Los hospedajes de todo el grupo. Ves solo los botones de las funciones que tienes permitidas.';
+      } else if (tienePermiso(yo, 'propios')) {
+        document.getElementById('subtitulo').textContent = 'Puedes editar tus registros cuando quieras. Para eliminar uno, envía una solicitud que aprueba un administrador.';
       } else {
-        document.getElementById('subtitulo').textContent = 'Puedes editar tus registros mientras estén pendientes o rechazados.';
+        document.getElementById('subtitulo').textContent = 'Tus registros.';
       }
 
       // Lista de tipos para el filtro
       let ruta = '/tipos';
-      if (esAdmin) ruta = '/tipos?todos=1';
+      if (tienePermiso(yo, 'tipos')) ruta = '/tipos?todos=1';
       const tipos = await api(ruta);
       for (const t of tipos) {
         document.getElementById('tipo').innerHTML += `<option value="${t.id}">${esc(t.nombre)}</option>`;
@@ -262,6 +317,7 @@
       // Filtros que vienen en la dirección (desde las tarjetas de Administración)
       if (parametro('revision')) document.getElementById('revision').value = parametro('revision');
       if (parametro('estado')) document.getElementById('estado').value = parametro('estado');
+      if (parametro('eliminacion')) document.getElementById('eliminacion').value = parametro('eliminacion');
 
       cargar();
     }
